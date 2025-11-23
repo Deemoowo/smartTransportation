@@ -9,10 +9,7 @@ import org.springframework.core.env.Environment;
 public class SmartTransportationApplication {
 
     public static void main(String[] args) {
-        ConfigurableApplicationContext application = SpringApplication.run(SmartTransportationApplication.class, args);
-        Environment env = application.getEnvironment();
-        String port = env.getProperty("server.port");
-        System.out.println("==============AiApplication启动成功，服务端口为：" + port);
+        SpringApplication.run(SmartTransportationApplication.class, args);
     }
 
 }
