@@ -13,8 +13,8 @@ spring:
   # MySQL 数据库配置
   datasource:
     url: jdbc:mysql://localhost:3306/smart_transportation?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-    username: root
-    password: Qwert_1245
+    username: {$USERNAME}
+    password: {$PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # JPA 配置
