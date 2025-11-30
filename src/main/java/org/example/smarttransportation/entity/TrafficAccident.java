@@ -313,13 +313,20 @@ public class TrafficAccident extends TransportationData {
      * 获取事故时段描述
      */
     public String getTimeSlotDescription() {
-        if (crashDate == null) return "未知时段";
+        if (crashDate == null) {
+            return "未知时段";
+        }
         
         int hour = crashDate.getHour();
-        if (hour >= 7 && hour <= 9) return "早高峰";
-        else if (hour >= 17 && hour <= 19) return "晚高峰";
-        else if (hour >= 22 || hour <= 5) return "深夜时段";
-        else return "平峰时段";
+        if (hour >= 7 && hour <= 9) {
+            return "早高峰";
+        } else if (hour >= 17 && hour <= 19) {
+            return "晚高峰";
+        } else if (hour >= 22 || hour <= 5) {
+            return "深夜时段";
+        } else {
+            return "平峰时段";
+        }
     }
 
     /**

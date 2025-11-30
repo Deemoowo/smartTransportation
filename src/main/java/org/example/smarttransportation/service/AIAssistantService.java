@@ -37,6 +37,12 @@ public class AIAssistantService {
     @Autowired
     private TrafficDataAnalysisService trafficDataAnalysisService;
 
+    @Autowired
+    private RiskWarningService riskWarningService;
+
+    @Autowired
+    private RAGService ragService;
+
     public AIAssistantService(ChatModel chatModel) {
         // 构建ChatClient，设置专门的交通助手参数
         this.chatClient = ChatClient.builder(chatModel)
@@ -80,6 +86,221 @@ public class AIAssistantService {
                 sessionId = UUID.randomUUID().toString();
             }
 
+            // 检查是否属于三大核心场景之一
+            ScenarioType scenarioType = identifyScenario(request.getMessage());
+
+            // 根据场景类型处理请求
+            switch (scenarioType) {
+                case PROACTIVE_WARNING:
+                    return handleProactiveWarningScenario(request, sessionId, startTime);
+                case EMERGENCY_RESPONSE:
+                    return handleEmergencyResponseScenario(request, sessionId, startTime);
+                case DATA_DRIVEN_GOVERNANCE:
+                    return handleDataDrivenGovernanceScenario(request, sessionId, startTime);
+                default:
+                    return handleGeneralScenario(request, sessionId, startTime);
+            }
+
+        } catch (Exception e) {
+            logger.error("AI对话处理失败", e);
+            ChatResponse errorResponse = ChatResponse.error(
+                request.getSessionId(),
+                "处理对话时发生错误: " + e.getMessage()
+            );
+            errorResponse.setProcessingTimeMs(System.currentTimeMillis() - startTime);
+            return errorResponse;
+        }
+    }
+
+    /**
+     * 识别场景类型
+     */
+    private ScenarioType identifyScenario(String userMessage) {
+        String message = userMessage.toLowerCase();
+
+        // 事前主动风险预警场景关键词
+        String[] warningKeywords = {
+            "风险预警", "风险预测", "预防", "预警", "暴雪", "结冰", "天气预警",
+            "提前部署", "防范", "风险评估", "潜在风险", "snow", "icing", "blizzard"
+        };
+
+        // 事中智能应急响应场景关键词
+        String[] emergencyKeywords = {
+            "紧急", "应急", "突发", "事故", "车祸", "拥堵", "堵塞", "封闭",
+            "救援", "处理", "应对", "emergency", "accident", "crash", "incident"
+        };
+
+        // 事后数据驱动治理场景关键词
+        String[] governanceKeywords = {
+            "治理", "整改", "优化", "改善", "分析", "复盘", "总结", "黑点",
+            "根源", "原因", "治理方案", "改进措施", "governance", "improve",
+            "analysis", "solution", "black spot"
+        };
+
+        // 检查是否匹配预警场景
+        for (String keyword : warningKeywords) {
+            if (message.contains(keyword)) {
+                return ScenarioType.PROACTIVE_WARNING;
+            }
+        }
+
+        // 检查是否匹配应急响应场景
+        for (String keyword : emergencyKeywords) {
+            if (message.contains(keyword)) {
+                return ScenarioType.EMERGENCY_RESPONSE;
+            }
+        }
+
+        // 检查是否匹配治理场景
+        for (String keyword : governanceKeywords) {
+            if (message.contains(keyword)) {
+                return ScenarioType.DATA_DRIVEN_GOVERNANCE;
+            }
+        }
+
+        return ScenarioType.GENERAL;
+    }
+
+    /**
+     * 处理事前主动风险预警场景
+     */
+    private ChatResponse handleProactiveWarningScenario(ChatRequest request, String sessionId, long startTime) {
+        try {
+            // 调用风险预警服务生成风险预警报告
+            // 这里使用当前时间作为目标时间，实际应用中可以根据用户请求解析具体时间
+            java.time.LocalDateTime targetDateTime = java.time.LocalDateTime.now();
+            org.example.smarttransportation.dto.RiskWarningReport riskReport =
+                riskWarningService.generateRiskWarning(targetDateTime);
+
+            // 构建响应消息
+            StringBuilder responseMessage = new StringBuilder();
+            responseMessage.append("【T-Agent 风险预警报告】\n\n");
+            responseMessage.append("风险等级: ").append(riskReport.getRiskLevel()).append("\n");
+            responseMessage.append("风险类型: ").append(riskReport.getRiskType()).append("\n");
+            responseMessage.append("时间窗口: ").append(riskReport.getTimeWindow()).append("\n");
+            responseMessage.append("影响区域: ").append(riskReport.getAffectedArea()).append("\n\n");
+
+            responseMessage.append("【风险分析】\n");
+            org.example.smarttransportation.dto.RiskWarningReport.RiskAnalysis riskAnalysis = riskReport.getRiskAnalysis();
+            responseMessage.append("综合风险评分: ").append(riskAnalysis.getOverallRiskScore()).append("\n");
+            responseMessage.append("风险因子: ").append(riskAnalysis.getRiskFactors()).append("\n\n");
+
+            responseMessage.append("【高风险区域】\n");
+            if (riskReport.getHighRiskZones() != null && !riskReport.getHighRiskZones().isEmpty()) {
+                for (org.example.smarttransportation.dto.RiskWarningReport.HighRiskZone zone : riskReport.getHighRiskZones()) {
+                    responseMessage.append("- ").append(zone.getLocation()).append(" (").append(zone.getRiskLevel()).append(")\n");
+                    responseMessage.append("  风险因素: ").append(zone.getRiskFactors()).append("\n");
+                    responseMessage.append("  建议措施: ").append(String.join(", ", zone.getDeploymentSuggestions())).append("\n\n");
+                }
+            } else {
+                responseMessage.append("暂无高风险区域。\n\n");
+            }
+
+            responseMessage.append("【建议措施】\n");
+            if (riskReport.getRecommendations() != null && !riskReport.getRecommendations().isEmpty()) {
+                for (int i = 0; i < riskReport.getRecommendations().size(); i++) {
+                    responseMessage.append((i + 1)).append(". ").append(riskReport.getRecommendations().get(i)).append("\n");
+                }
+            }
+
+            responseMessage.append("\n【参考标准】\n");
+            responseMessage.append(riskReport.getSopReference()).append("\n");
+
+            // 保存对话历史
+            saveChatHistory(sessionId, request.getMessage(), responseMessage.toString(), false, null);
+
+            // 构建响应
+            ChatResponse response = ChatResponse.success(sessionId, responseMessage.toString());
+            response.setProcessingTimeMs(System.currentTimeMillis() - startTime);
+            return response;
+
+        } catch (Exception e) {
+            logger.error("处理风险预警场景失败", e);
+            return handleGeneralScenario(request, sessionId, startTime);
+        }
+    }
+
+    /**
+     * 处理事中智能应急响应场景
+     */
+    private ChatResponse handleEmergencyResponseScenario(ChatRequest request, String sessionId, long startTime) {
+        try {
+            // 使用RAG服务处理应急响应场景
+            RAGService.AnswerResult result = ragService.answer(request.getMessage(), sessionId);
+
+            // 构建响应消息
+            StringBuilder responseMessage = new StringBuilder();
+            responseMessage.append("【T-Agent 应急响应快报】\n\n");
+            responseMessage.append(result.getAnswer()).append("\n");
+
+            if (result.getQueryData() != null && !result.getQueryData().isEmpty()) {
+                responseMessage.append("\n【数据支撑】\n");
+                responseMessage.append("查询到 ").append(result.getQueryData().size()).append(" 条相关数据。\n");
+            }
+
+            if (result.getRetrievedDocs() != null && !result.getRetrievedDocs().isEmpty()) {
+                responseMessage.append("\n【知识参考】\n");
+                responseMessage.append("检索到 ").append(result.getRetrievedDocs().size()).append(" 条相关知识。\n");
+            }
+
+            // 保存对话历史
+            saveChatHistory(sessionId, request.getMessage(), responseMessage.toString(),
+                          result.getQueryData() != null && !result.getQueryData().isEmpty(), null);
+
+            // 构建响应
+            ChatResponse response = ChatResponse.success(sessionId, responseMessage.toString());
+            response.setProcessingTimeMs(System.currentTimeMillis() - startTime);
+            return response;
+
+        } catch (Exception e) {
+            logger.error("处理应急响应场景失败", e);
+            return handleGeneralScenario(request, sessionId, startTime);
+        }
+    }
+
+    /**
+     * 处理事后数据驱动治理场景
+     */
+    private ChatResponse handleDataDrivenGovernanceScenario(ChatRequest request, String sessionId, long startTime) {
+        try {
+            // 使用RAG服务处理数据驱动治理场景
+            RAGService.AnswerResult result = ragService.answer(request.getMessage(), sessionId);
+
+            // 构建响应消息
+            StringBuilder responseMessage = new StringBuilder();
+            responseMessage.append("【T-Agent 数据驱动治理分析报告】\n\n");
+            responseMessage.append(result.getAnswer()).append("\n");
+
+            if (result.getQueryData() != null && !result.getQueryData().isEmpty()) {
+                responseMessage.append("\n【数据分析】\n");
+                responseMessage.append("基于 ").append(result.getQueryData().size()).append(" 条数据进行分析。\n");
+            }
+
+            if (result.getRetrievedDocs() != null && !result.getRetrievedDocs().isEmpty()) {
+                responseMessage.append("\n【治理建议参考】\n");
+                responseMessage.append("参考了 ").append(result.getRetrievedDocs().size()).append(" 条治理经验和标准。\n");
+            }
+
+            // 保存对话历史
+            saveChatHistory(sessionId, request.getMessage(), responseMessage.toString(),
+                          result.getQueryData() != null && !result.getQueryData().isEmpty(), null);
+
+            // 构建响应
+            ChatResponse response = ChatResponse.success(sessionId, responseMessage.toString());
+            response.setProcessingTimeMs(System.currentTimeMillis() - startTime);
+            return response;
+
+        } catch (Exception e) {
+            logger.error("处理数据驱动治理场景失败", e);
+            return handleGeneralScenario(request, sessionId, startTime);
+        }
+    }
+
+    /**
+     * 处理通用场景
+     */
+    private ChatResponse handleGeneralScenario(ChatRequest request, String sessionId, long startTime) {
+        try {
             // 检查是否需要数据查询
             boolean needsDataQuery = isDataQueryRequired(request.getMessage());
             String enhancedMessage = request.getMessage();
@@ -146,7 +367,7 @@ public class AIAssistantService {
             return response;
 
         } catch (Exception e) {
-            logger.error("AI对话处理失败", e);
+            logger.error("处理通用场景失败", e);
             ChatResponse errorResponse = ChatResponse.error(
                 request.getSessionId(),
                 "处理对话时发生错误: " + e.getMessage()
@@ -240,5 +461,15 @@ public class AIAssistantService {
     public void cleanupOldChats(int daysToKeep) {
         LocalDateTime cutoffTime = LocalDateTime.now().minusDays(daysToKeep);
         chatHistoryRepository.deleteByCreatedAtBefore(cutoffTime);
+    }
+
+    /**
+     * 场景类型枚举
+     */
+    private enum ScenarioType {
+        PROACTIVE_WARNING,      // 事前主动风险预警
+        EMERGENCY_RESPONSE,     // 事中智能应急响应
+        DATA_DRIVEN_GOVERNANCE, // 事后数据驱动治理
+        GENERAL                 // 通用场景
     }
 }

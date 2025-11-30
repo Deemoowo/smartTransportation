@@ -123,6 +123,6 @@ public class EmbeddingService {
      * 获取向量维度
      */
     public int getEmbeddingDimension() {
-        return 384; // 默认维度，实际应根据模型配置
+        return 1536; // 修改为与Python脚本一致的1536维向量
     }
 }

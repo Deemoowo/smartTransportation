@@ -178,15 +178,22 @@ public class RAGService {
      */
     private AnswerResult handleKnowledgeQA(String question) {
         try {
-            // 1. 向量检索相关知识
-            List<VectorStoreService.SearchResult> searchResults = 
+            // 1. 向量检索相关知识，优先检索SOP和专家知识
+            List<VectorStoreService.SearchResult> searchResults =
                 vectorStoreService.semanticSearch(question, DEFAULT_RETRIEVE_COUNT);
-            
-            // 2. 构建上下文
-            String context = buildContext(searchResults);
-            
-            // 3. 生成回答
-            String answer = generateAnswerWithContext(question, context);
+
+            // 2. 如果没有找到相关结果，尝试使用更广泛的查询
+            if (searchResults == null || searchResults.isEmpty()) {
+                // 尝试添加关键词来扩大搜索范围
+                String expandedQuery = question + " 交通管理 标准操作程序 专家建议";
+                searchResults = vectorStoreService.semanticSearch(expandedQuery, DEFAULT_RETRIEVE_COUNT);
+            }
+
+            // 3. 构建上下文，优先使用高相关性的SOP和专家知识
+            String context = buildEnhancedContext(searchResults);
+
+            // 4. 生成回答，强调SOP和专家知识来源
+            String answer = generateAnswerWithSOPReference(question, context);
             
             return new AnswerResult(
                 true,
@@ -553,7 +560,122 @@ public class RAGService {
             // 缓存失败不影响主流程
         }
     }
-    
+    /**
+     * 构建增强的检索上下文，优先使用高相关性的SOP和专家知识
+     */
+    private String buildEnhancedContext(List<VectorStoreService.SearchResult> searchResults) {
+        if (searchResults == null || searchResults.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder context = new StringBuilder();
+        int currentLength = 0;
+
+        // 优先处理SOP和专家知识
+        for (VectorStoreService.SearchResult result : searchResults) {
+            String content = result.getContent();
+            String source = result.getSource();
+            String metadata = result.getMetadata();
+
+            // 优先处理来自SOP和专家知识的内容
+            if (StringUtils.hasText(content) && isSOPorExpertKnowledge(source, metadata)) {
+                if (currentLength + content.length() > MAX_CONTEXT_LENGTH) {
+                    break;
+                }
+                context.append("[SOP/专家知识] ").append(content).append("\n\n");
+                currentLength += content.length();
+            }
+        }
+
+        // 如果上下文还不够长，添加其他相关内容
+        if (currentLength < MAX_CONTEXT_LENGTH) {
+            for (VectorStoreService.SearchResult result : searchResults) {
+                String content = result.getContent();
+                String source = result.getSource();
+                String metadata = result.getMetadata();
+
+                // 添加非SOP/专家知识的内容
+                if (StringUtils.hasText(content) && !isSOPorExpertKnowledge(source, metadata)) {
+                    if (currentLength + content.length() > MAX_CONTEXT_LENGTH) {
+                        break;
+                    }
+                    context.append(content).append("\n\n");
+                    currentLength += content.length();
+                }
+            }
+        }
+
+        return context.toString().trim();
+    }
+
+    /**
+     * 判断是否为SOP或专家知识
+     */
+    private boolean isSOPorExpertKnowledge(String source, String metadata) {
+        if (!StringUtils.hasText(source) && !StringUtils.hasText(metadata)) {
+            return false;
+        }
+
+        // 检查来源是否包含SOP或专家知识标识
+        String lowerSource = source != null ? source.toLowerCase() : "";
+        String lowerMetadata = metadata != null ? metadata.toLowerCase() : "";
+
+        return lowerSource.contains("sop") || lowerSource.contains("手册") ||
+               lowerSource.contains("manual") || lowerSource.contains("handbook") ||
+               lowerMetadata.contains("sop") || lowerMetadata.contains("专家") ||
+               lowerMetadata.contains("expert") || lowerMetadata.contains("standard");
+    }
+
+    /**
+     * 生成带有SOP引用的回答
+     */
+    private String generateAnswerWithSOPReference(String question, String context) {
+        if (chatModel == null) {
+            return generateFallbackAnswer(question, context);
+        }
+
+        // 初始化ChatClient（如果还没有初始化）
+        if (chatClient == null) {
+            chatClient = ChatClient.builder(chatModel).build();
+        }
+
+        try {
+            String prompt = buildSOPReferencePrompt(question, context);
+
+            return chatClient.prompt()
+                .user(prompt)
+                .call()
+                .content();
+
+        } catch (Exception e) {
+            return generateFallbackAnswer(question, context);
+        }
+    }
+
+    /**
+     * 构建带有SOP引用的提示词
+     */
+    private String buildSOPReferencePrompt(String question, String context) {
+        return String.format("""
+            你是一个智慧交通领域的专家助手。请基于以下上下文信息回答用户问题，特别注意其中的SOP（标准操作程序）和专家知识。
+            
+            上下文信息：
+            %s
+            
+            用户问题：%s
+            
+            请要求：
+            1. 基于上下文信息进行回答，特别是SOP和专家知识部分
+            2. 如果引用了SOP或专家知识，请明确指出
+            3. 如果上下文信息不足，请说明并提供一般性建议
+            4. 回答要专业、准确、有帮助
+            5. 使用中文回答
+            6. 如果涉及数据，请提供具体的数字和分析
+            
+            回答：
+            """, context, question);
+    }
+
     /**
      * 查询意图枚举
      */

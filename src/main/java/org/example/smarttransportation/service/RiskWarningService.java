@@ -121,9 +121,15 @@ public class RiskWarningService {
             
             // 计算天气风险评分
             int score = 0;
-            if (hasSnow) score += 30;
-            if (hasIcingRisk) score += 25;
-            if (isSevereWeather) score += 20;
+            if (hasSnow) {
+                score += 30;
+            }
+            if (hasIcingRisk) {
+                score += 25;
+            }
+            if (isSevereWeather) {
+                score += 20;
+            }
             
             weatherRisk.setRiskScore(score);
         } else {
@@ -167,9 +173,15 @@ public class RiskWarningService {
         
         // 计算交通风险评分
         int score = 0;
-        if (isRushHour) score += 25;
-        if (accidentCount > 10) score += 20;
-        if (highDensityStations.size() > 5) score += 15;
+        if (isRushHour) {
+            score += 25;
+        }
+        if (accidentCount > 10) {
+            score += 20;
+        }
+        if (highDensityStations.size() > 5) {
+            score += 15;
+        }
         
         trafficRisk.setRiskScore(score);
         
@@ -210,8 +222,12 @@ public class RiskWarningService {
         
         // 计算事件风险评分
         int score = 0;
-        if (activeEvents.size() > 3) score += 15;
-        if (highImpactCount > 0) score += 20;
+        if (activeEvents.size() > 3) {
+            score += 15;
+        }
+        if (highImpactCount > 0) {
+            score += 20;
+        }
         
         eventRisk.setRiskScore(score);
         
@@ -242,13 +258,23 @@ public class RiskWarningService {
         List<String> riskTypes = new ArrayList<>();
         
         RiskWarningReport.WeatherRisk weather = analysis.getWeatherRisk();
-        if (weather.isHasSnow()) riskTypes.add("暴雪");
-        if (weather.isHasIcingRisk()) riskTypes.add("道路结冰");
-        if (weather.isSevereWeather()) riskTypes.add("恶劣天气");
+        if (weather.isHasSnow()) {
+            riskTypes.add("暴雪");
+        }
+        if (weather.isHasIcingRisk()) {
+            riskTypes.add("道路结冰");
+        }
+        if (weather.isSevereWeather()) {
+            riskTypes.add("恶劣天气");
+        }
         
-        if (analysis.getTrafficRisk().isRushHour()) riskTypes.add("高峰拥堵");
+        if (analysis.getTrafficRisk().isRushHour()) {
+            riskTypes.add("高峰拥堵");
+        }
         
-        if (analysis.getEventRisk().getHighImpactEvents() > 0) riskTypes.add("重大事件");
+        if (analysis.getEventRisk().getHighImpactEvents() > 0) {
+            riskTypes.add("重大事件");
+        }
         
         return riskTypes.isEmpty() ? "综合风险" : String.join("+", riskTypes);
     }
@@ -395,16 +421,32 @@ public class RiskWarningService {
                                      RiskWarningReport.EventRisk event) {
         List<String> factors = new ArrayList<>();
         
-        if (weather.isHasSnow()) factors.add("降雪天气");
-        if (weather.isHasIcingRisk()) factors.add("道路结冰风险");
-        if (weather.isSevereWeather()) factors.add("恶劣天气条件");
+        if (weather.isHasSnow()) {
+            factors.add("降雪天气");
+        }
+        if (weather.isHasIcingRisk()) {
+            factors.add("道路结冰风险");
+        }
+        if (weather.isSevereWeather()) {
+            factors.add("恶劣天气条件");
+        }
         
-        if (traffic.isRushHour()) factors.add("交通高峰时段");
-        if (traffic.getAccidentCount() > 10) factors.add("历史事故频发");
-        if (traffic.getHighDensityStations() > 5) factors.add("人流密集");
+        if (traffic.isRushHour()) {
+            factors.add("交通高峰时段");
+        }
+        if (traffic.getAccidentCount() > 10) {
+            factors.add("历史事故频发");
+        }
+        if (traffic.getHighDensityStations() > 5) {
+            factors.add("人流密集");
+        }
         
-        if (event.getActiveEvents() > 3) factors.add("多个活动同时进行");
-        if (event.getHighImpactEvents() > 0) factors.add("高影响事件");
+        if (event.getActiveEvents() > 3) {
+            factors.add("多个活动同时进行");
+        }
+        if (event.getHighImpactEvents() > 0) {
+            factors.add("高影响事件");
+        }
         
         return factors.isEmpty() ? "暂无明显风险因子" : String.join("、", factors);
     }
@@ -416,5 +458,41 @@ public class RiskWarningService {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy年MM月dd日 HH:mm");
         LocalDateTime endTime = targetDateTime.plusHours(2);
         return targetDateTime.format(formatter) + " - " + endTime.format(DateTimeFormatter.ofPattern("HH:mm"));
+    }
+
+    /**
+     * 扫描风险并生成结构化通报对象
+     * 实现场景一：事前·主动风险预警 (Proactive Risk Warning)
+     *
+     * @param targetDateTime 目标时间
+     * @return 风险预警报告
+     */
+    public RiskWarningReport scanForRisk(LocalDateTime targetDateTime) {
+        // 生成风险预警报告
+        RiskWarningReport report = generateRiskWarning(targetDateTime);
+
+        // 可以在这里添加额外的处理逻辑，例如：
+        // 1. 将报告保存到数据库
+        // 2. 发送通知给相关人员
+        // 3. 触发其他服务
+
+        return report;
+    }
+
+    /**
+     * 检查是否存在需要预警的风险条件
+     *
+     * @param targetDateTime 目标时间
+     * @return 是否存在风险
+     */
+    public boolean hasRiskConditions(LocalDateTime targetDateTime) {
+        // 分析各类风险
+        RiskWarningReport.RiskAnalysis riskAnalysis = analyzeRisks(targetDateTime);
+
+        // 确定整体风险等级
+        String riskLevel = determineRiskLevel(riskAnalysis);
+
+        // 如果风险等级为二级及以上，则认为存在风险
+        return "一级风险".equals(riskLevel) || "二级风险".equals(riskLevel);
     }
 }
