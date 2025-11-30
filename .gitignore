@@ -32,4 +32,4 @@ build/
 ### VS Code ###
 .vscode/
 # 忽略 Docker volumes 目录
-/volumes/
+volumes/
