@@ -1,6 +1,7 @@
 package org.example.smarttransportation.service;
 
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.smarttransportation.dto.ChartData;
 import org.example.smarttransportation.dto.ChatRequest;
 import org.example.smarttransportation.dto.ChatResponse;
@@ -49,6 +50,9 @@ public class AIAssistantService {
 
     @Autowired
     private WeatherApiService weatherApiService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     public AIAssistantService(ChatModel chatModel) {
         // 构建ChatClient，设置专门的交通助手参数
@@ -200,8 +204,26 @@ public class AIAssistantService {
         
         boolean finalNeedsDataQuery = needsDataQuery;
         List<String> finalQueriedTables = queriedTables;
+        
+        // 准备元数据
+        List<ChartData> charts = new ArrayList<>();
+        if (weatherAnswer != null && wantsCharts(request.getMessage()) && weatherAnswer.getCharts() != null) {
+            charts.addAll(weatherAnswer.getCharts());
+        }
+        
+        ChatResponse metaResponse = new ChatResponse();
+        metaResponse.setInvolvesDataQuery(finalNeedsDataQuery);
+        metaResponse.setQueriedTables(finalQueriedTables);
+        metaResponse.setCharts(charts);
+        if (finalNeedsDataQuery && !finalQueriedTables.isEmpty()) {
+             String summary = "已查询交通相关数据并整合到回答中";
+             if (weatherAnswer != null) {
+                 summary = wantsCharts(request.getMessage()) ? "已接入天气数据并生成图表" : "已接入天气数据（未请求图表）";
+             }
+             metaResponse.setDataQuerySummary(summary);
+        }
 
-        return requestSpec.user(enhancedMessage)
+        Flux<String> aiStream = requestSpec.user(enhancedMessage)
                 .stream()
                 .content()
                 .doOnNext(fullResponseBuilder::append)
@@ -209,6 +231,16 @@ public class AIAssistantService {
                     saveChatHistory(sessionId, request.getMessage(), fullResponseBuilder.toString(), finalNeedsDataQuery, finalQueriedTables);
                 })
                 .doOnError(e -> logger.error("流式生成失败", e));
+                
+        // 在流结束后追加元数据
+        return aiStream.concatWith(Mono.fromCallable(() -> {
+            try {
+                return "[METADATA]" + objectMapper.writeValueAsString(metaResponse);
+            } catch (Exception e) {
+                logger.error("序列化元数据失败", e);
+                return "";
+            }
+        }));
     }
 
     /**

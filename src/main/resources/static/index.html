@@ -732,7 +732,68 @@
                     for (const line of lines) {
                         if (line.startsWith('data:')) {
                             const content = line.substring(5);
-                            fullContent += content;
+                            if (content.includes('[METADATA]')) {
+                                const parts = content.split('[METADATA]');
+                                fullContent += parts[0];
+                                try {
+                                    const metaJson = parts[1];
+                                    const meta = JSON.parse(metaJson);
+                                    
+                                    // 更新元数据信息
+                                    let metaInfo = `<div class="message-meta">`;
+                                    metaInfo += `⏱️ 处理时间: ${meta.processingTimeMs || 'N/A'}ms`; // 流式暂无准确总耗时
+                                    if (meta.involvesDataQuery) {
+                                        metaInfo += `<span class="data-query-indicator">📊 数据查询</span>`;
+                                    }
+                                    if (meta.queriedTables && meta.queriedTables.length > 0) {
+                                        metaInfo += `<br>📋 查询表: ${meta.queriedTables.join(', ')}`;
+                                    }
+                                    if (meta.dataQuerySummary) {
+                                        metaInfo += `<br>📈 ${meta.dataQuerySummary}`;
+                                    }
+                                    metaInfo += `</div>`;
+                                    
+                                    // 插入元数据到消息底部
+                                    const metaDiv = document.createElement('div');
+                                    metaDiv.innerHTML = metaInfo;
+                                    assistantMessageDiv.children[1].appendChild(metaDiv);
+                                    
+                                    // 渲染图表
+                                    if (meta.charts && meta.charts.length > 0) {
+                                        const chartsContainer = document.createElement('div');
+                                        chartsContainer.className = 'chart-wrapper';
+                                        
+                                        meta.charts.forEach((chart, index) => {
+                                            const card = document.createElement('div');
+                                            card.className = 'chart-card';
+                                            const title = document.createElement('div');
+                                            title.className = 'chart-title';
+                                            title.textContent = chart.title || `图表 ${index + 1}`;
+                                            const canvas = document.createElement('canvas');
+                                            card.appendChild(title);
+                                            card.appendChild(canvas);
+                                            
+                                            const actions = document.createElement('div');
+                                            actions.className = 'chart-actions';
+                                            const btn = document.createElement('button');
+                                            btn.className = 'chart-btn';
+                                            btn.textContent = '查看全图';
+                                            btn.onclick = () => openChartModal(chart);
+                                            actions.appendChild(btn);
+                                            card.appendChild(actions);
+                                            
+                                            chartsContainer.appendChild(card);
+                                            setTimeout(() => renderChart(canvas, chart, false), 0);
+                                        });
+                                        assistantMessageDiv.children[1].appendChild(chartsContainer);
+                                    }
+                                    
+                                } catch (e) {
+                                    console.error('解析元数据失败', e);
+                                }
+                            } else {
+                                fullContent += content;
+                            }
                         }
                     }
                     
