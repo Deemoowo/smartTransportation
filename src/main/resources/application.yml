@@ -56,5 +56,15 @@ milvus:
     max-idle-timeout: 60000
     retry-times: 3
 
+# 天气接口配置（用于曼哈顿 2024 年 2 月默认天气数据）
+weather:
+  api:
+    enabled: true
+    base-url: https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline
+    key: 324LPPF8896FXKECQWWZQEEKU   # 请在环境变量或此处填入接口 Key
+    location: Manhattan,NY
+    start-date: 2024-02-01
+    end-date: 2024-02-29
+
 tavily:
   api-key: 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

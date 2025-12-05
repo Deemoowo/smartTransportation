@@ -73,6 +73,11 @@ public class AIAssistantService {
                     - 地铁客流数据 (subway_ridership)
                     - 互联网实时信息 (通过 webSearch 工具)
                     
+                    重要规则：
+                    1. 当系统提供【数据查询结果】时，这些数据是经过SQL查询验证的准确数据，请直接使用，不要质疑其准确性
+                    2. SQL查询中的日期范围条件（如 CRASH_DATETIME <= '2024-02-29 23:59:59'）只是为了限定查询范围，实际返回的数据是符合WHERE条件中所有条件的（包括具体日期如 CRASH DATE = '2024-02-10'）
+                    3. 不要因为看到SQL中的日期范围就误判返回的数据日期，要以实际返回的数据记录中的日期字段为准
+                    
                     请用专业但友好的语调回答，并在适当时候主动提供相关的数据洞察。
                     如果用户的问题涉及数据查询，请在回答中明确说明你查询了哪些数据源。
                     """)
@@ -125,16 +130,21 @@ public class AIAssistantService {
     private ScenarioType identifyScenario(String userMessage) {
         String message = userMessage.toLowerCase();
 
+        // 优先检查是否为数据查询，如果是数据查询则直接返回通用场景
+        if (isDataQueryRequired(userMessage)) {
+            return ScenarioType.GENERAL;
+        }
+
         // 事前主动风险预警场景关键词
         String[] warningKeywords = {
             "风险预警", "风险预测", "预防", "预警", "暴雪", "结冰", "天气预警",
             "提前部署", "防范", "风险评估", "潜在风险", "snow", "icing", "blizzard"
         };
 
-        // 事中智能应急响应场景关键词
+        // 事中智能应急响应场景关键词（排除数据查询类关键词）
         String[] emergencyKeywords = {
-            "紧急", "应急", "突发", "事故", "车祸", "拥堵", "堵塞", "封闭",
-            "救援", "处理", "应对", "emergency", "accident", "crash", "incident"
+            "紧急", "应急", "突发", "车祸", "拥堵", "堵塞", "封闭",
+            "救援", "处理", "应对", "emergency", "crash", "incident"
         };
 
         // 事后数据驱动治理场景关键词
@@ -320,7 +330,8 @@ public class AIAssistantService {
                 try {
                     String dataAnalysis = trafficDataAnalysisService.analyzeUserQuery(request.getMessage());
                     if (dataAnalysis != null && !dataAnalysis.trim().isEmpty()) {
-                        enhancedMessage = request.getMessage() + "\n\n【数据查询结果】\n" + dataAnalysis;
+                        enhancedMessage = request.getMessage() + "\n\n【数据查询结果】\n" + dataAnalysis +
+                            "\n\n【重要提示】以上数据查询结果是准确的，SQL查询已经正确执行并返回了符合条件的数据。请直接基于这些数据回答用户问题，不要质疑数据的准确性。如果SQL中包含日期范围条件（如 <= '2024-02-29'），那只是为了限定查询范围，实际返回的数据是符合WHERE条件中指定的具体日期的。";
                         queriedTables = extractQueriedTables(request.getMessage());
                     }
                 } catch (Exception e) {
