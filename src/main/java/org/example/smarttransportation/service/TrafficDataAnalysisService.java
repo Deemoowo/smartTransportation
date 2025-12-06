@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -42,10 +43,75 @@ public class TrafficDataAnalysisService {
     @Autowired
     private SubwayRidershipRepository subwayRidershipRepository;
 
+    @Autowired
+    private NL2SQLService nl2SQLService;
+
     /**
      * 分析用户查询并返回相关数据摘要
      */
     public String analyzeUserQuery(String userQuery) {
+        try {
+            // 首先尝试使用NL2SQL服务处理查询
+            NL2SQLService.QueryResult queryResult = nl2SQLService.executeQuery(userQuery);
+
+            if (queryResult.isSuccess() && queryResult.getData() != null && !queryResult.getData().isEmpty()) {
+                StringBuilder analysis = new StringBuilder();
+                analysis.append("【数据查询结果】\n");
+
+                // 显示执行的SQL（用于调试）
+                if (queryResult.getSql() != null) {
+                    logger.info("执行的SQL: {}", queryResult.getSql());
+                }
+
+                // 格式化查询结果
+                List<Map<String, Object>> data = queryResult.getData();
+                analysis.append(String.format("查询到 %d 条记录：\n", data.size()));
+
+                // 限制显示前10条记录，避免输出过长
+                int displayCount = Math.min(data.size(), 10);
+                for (int i = 0; i < displayCount; i++) {
+                    Map<String, Object> row = data.get(i);
+                    analysis.append(String.format("%d. ", i + 1));
+
+                    // 格式化每行数据
+                    for (Map.Entry<String, Object> entry : row.entrySet()) {
+                        String key = entry.getKey();
+                        Object value = entry.getValue();
+
+                        // 简化字段名显示
+                        String displayKey = simplifyFieldName(key);
+                        analysis.append(String.format("%s: %s, ", displayKey, value));
+                    }
+
+                    // 移除最后的逗号和空格
+                    if (analysis.length() > 2) {
+                        analysis.setLength(analysis.length() - 2);
+                    }
+                    analysis.append("\n");
+                }
+
+                if (data.size() > displayCount) {
+                    analysis.append(String.format("... 还有 %d 条记录\n", data.size() - displayCount));
+                }
+
+                return analysis.toString();
+            } else {
+                // NL2SQL查询失败，回退到传统分析方法
+                logger.warn("NL2SQL查询失败: {}", queryResult.getMessage());
+                return analyzeUserQueryTraditional(userQuery);
+            }
+
+        } catch (Exception e) {
+            logger.error("NL2SQL查询异常: {}", e.getMessage());
+            // 出现异常时回退到传统分析方法
+            return analyzeUserQueryTraditional(userQuery);
+        }
+    }
+
+    /**
+     * 传统的数据分析方法（作为NL2SQL的备选方案）
+     */
+    private String analyzeUserQueryTraditional(String userQuery) {
         StringBuilder analysis = new StringBuilder();
         String query = userQuery.toLowerCase();
 
@@ -88,11 +154,48 @@ public class TrafficDataAnalysisService {
             }
 
         } catch (Exception e) {
-            logger.error("数据分析失败: {}", e.getMessage());
+            logger.error("传统数据分析失败: {}", e.getMessage());
             return "数据查询暂时不可用，请稍后再试。";
         }
 
         return analysis.toString().trim();
+    }
+
+    /**
+     * 简化字段名显示
+     */
+    private String simplifyFieldName(String fieldName) {
+        if (fieldName == null) return "未知";
+
+        // 处理常见的字段名
+        switch (fieldName.toLowerCase()) {
+            case "crash date":
+            case "`crash date`":
+                return "事故日期";
+            case "number of persons injured":
+            case "`number of persons injured`":
+                return "受伤人数";
+            case "number of persons killed":
+            case "`number of persons killed`":
+                return "死亡人数";
+            case "on street name":
+            case "`on street name`":
+                return "街道名称";
+            case "borough":
+                return "行政区";
+            case "start_station_name":
+                return "起始站点";
+            case "trip_count":
+                return "出行次数";
+            case "event name":
+            case "`event name`":
+                return "事件名称";
+            case "start date/time":
+            case "`start date/time`":
+                return "开始时间";
+            default:
+                return fieldName;
+        }
     }
 
     /**

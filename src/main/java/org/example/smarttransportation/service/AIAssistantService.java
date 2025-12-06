@@ -1,6 +1,7 @@
 package org.example.smarttransportation.service;
 
 import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.smarttransportation.dto.ChartData;
 import org.example.smarttransportation.dto.ChatRequest;
 import org.example.smarttransportation.dto.ChatResponse;
@@ -14,6 +15,8 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -51,6 +54,7 @@ public class AIAssistantService {
 
     @Autowired
     private NL2SQLService nl2sqlService;
+    private ObjectMapper objectMapper;
 
     public AIAssistantService(ChatModel chatModel) {
         // 构建ChatClient，设置专门的交通助手参数
@@ -76,6 +80,11 @@ public class AIAssistantService {
                     - 许可事件数据 (nyc_permitted_events)
                     - 地铁客流数据 (subway_ridership)
                     - 互联网实时信息 (通过 webSearch 工具)
+                    
+                    重要规则：
+                    1. 当系统提供【数据查询结果】时，这些数据是经过SQL查询验证的准确数据，请直接使用，不要质疑其准确性
+                    2. SQL查询中的日期范围条件（如 CRASH_DATETIME <= '2024-02-29 23:59:59'）只是为了限定查询范围，实际返回的数据是符合WHERE条件中所有条件的（包括具体日期如 CRASH DATE = '2024-02-10'）
+                    3. 不要因为看到SQL中的日期范围就误判返回的数据日期，要以实际返回的数据记录中的日期字段为准
                     
                     请用专业但友好的语调回答，并在适当时候主动提供相关的数据洞察。
                     如果用户的问题涉及数据查询，请在回答中明确说明你查询了哪些数据源。
@@ -124,10 +133,133 @@ public class AIAssistantService {
     }
 
     /**
+     * 流式对话接口
+     */
+    public Flux<String> streamChat(ChatRequest request) {
+        String sessionId = request.getSessionId() != null ? request.getSessionId() : UUID.randomUUID().toString();
+        long startTime = System.currentTimeMillis();
+
+        try {
+            ScenarioType scenarioType = identifyScenario(request.getMessage());
+            
+            if (scenarioType == ScenarioType.GENERAL) {
+                return streamGeneralScenario(request, sessionId, startTime);
+            } else {
+                // 其他场景暂时使用非流式处理，包装成Flux
+                return Mono.fromCallable(() -> {
+                    ChatResponse response = chat(request);
+                    return response.getMessage();
+                }).flux();
+            }
+        } catch (Exception e) {
+            logger.error("流式对话初始化失败", e);
+            return Flux.just("处理对话时发生错误: " + e.getMessage());
+        }
+    }
+
+    private Flux<String> streamGeneralScenario(ChatRequest request, String sessionId, long startTime) {
+        // 1. 准备上下文
+        boolean needsDataQuery = isDataQueryRequired(request.getMessage());
+        String enhancedMessage = request.getMessage();
+        List<String> queriedTables = new ArrayList<>();
+        
+        if (needsDataQuery) {
+             try {
+                String dataAnalysis = trafficDataAnalysisService.analyzeUserQuery(request.getMessage());
+                if (dataAnalysis != null && !dataAnalysis.trim().isEmpty()) {
+                    enhancedMessage = request.getMessage() + "\n\n【数据查询结果】\n" + dataAnalysis;
+                    queriedTables = extractQueriedTables(request.getMessage());
+                }
+            } catch (Exception e) {
+                logger.warn("数据查询失败: {}", e.getMessage());
+                enhancedMessage = request.getMessage() + "\n\n注意：当前无法访问实时数据，回答基于一般知识。";
+            }
+        }
+
+        WeatherAnswer weatherAnswer = weatherApiService.findWeatherAnswerForMessage(request.getMessage());
+        if (weatherAnswer != null) {
+            needsDataQuery = true;
+            queriedTables.add("weather_api_manhattan_2024_02");
+            enhancedMessage = enhancedMessage + "\n\n【天气数据支持】\n" + weatherAnswer.getSummary();
+        }
+
+        ChatClient.ChatClientRequestSpec requestSpec = chatClient.prompt();
+
+        if (Boolean.TRUE.equals(request.getEnableSearch())) {
+             requestSpec.functions("webSearch");
+             enhancedMessage += "\n\n【系统提示】用户已开启深度搜索模式。请务必使用 'webSearch' 工具搜索互联网上的最新信息来补充你的回答，特别是当本地数据不足或过时的时候。不要仅依赖训练数据。";
+        }
+
+        if (request.getIncludeContext() != null && request.getIncludeContext()) {
+             List<ChatHistory> recentChats = chatHistoryRepository.findRecentChatsBySessionId(sessionId);
+             int maxRounds = request.getMaxContextRounds() != null ? request.getMaxContextRounds() : 3;
+             StringBuilder contextBuilder = new StringBuilder();
+             for (int i = Math.min(recentChats.size() - 1, maxRounds - 1); i >= 0; i--) {
+                ChatHistory chat = recentChats.get(i);
+                if (chat.getUserMessage() != null && chat.getAssistantMessage() != null) {
+                    contextBuilder.append("用户: ").append(chat.getUserMessage()).append("\n");
+                    contextBuilder.append("助手: ").append(chat.getAssistantMessage()).append("\n\n");
+                }
+            }
+            if (contextBuilder.length() > 0) {
+                enhancedMessage = "【对话历史】\n" + contextBuilder.toString() + "【当前问题】\n" + enhancedMessage;
+            }
+        }
+
+        // 2. 调用流式API
+        StringBuilder fullResponseBuilder = new StringBuilder();
+        
+        boolean finalNeedsDataQuery = needsDataQuery;
+        List<String> finalQueriedTables = queriedTables;
+        
+        // 准备元数据
+        List<ChartData> charts = new ArrayList<>();
+        if (weatherAnswer != null && wantsCharts(request.getMessage()) && weatherAnswer.getCharts() != null) {
+            charts.addAll(weatherAnswer.getCharts());
+        }
+        
+        ChatResponse metaResponse = new ChatResponse();
+        metaResponse.setInvolvesDataQuery(finalNeedsDataQuery);
+        metaResponse.setQueriedTables(finalQueriedTables);
+        metaResponse.setCharts(charts);
+        if (finalNeedsDataQuery && !finalQueriedTables.isEmpty()) {
+             String summary = "已查询交通相关数据并整合到回答中";
+             if (weatherAnswer != null) {
+                 summary = wantsCharts(request.getMessage()) ? "已接入天气数据并生成图表" : "已接入天气数据（未请求图表）";
+             }
+             metaResponse.setDataQuerySummary(summary);
+        }
+
+        Flux<String> aiStream = requestSpec.user(enhancedMessage)
+                .stream()
+                .content()
+                .doOnNext(fullResponseBuilder::append)
+                .doOnComplete(() -> {
+                    saveChatHistory(sessionId, request.getMessage(), fullResponseBuilder.toString(), finalNeedsDataQuery, finalQueriedTables);
+                })
+                .doOnError(e -> logger.error("流式生成失败", e));
+                
+        // 在流结束后追加元数据
+        return aiStream.concatWith(Mono.fromCallable(() -> {
+            try {
+                return "[METADATA]" + objectMapper.writeValueAsString(metaResponse);
+            } catch (Exception e) {
+                logger.error("序列化元数据失败", e);
+                return "";
+            }
+        }));
+    }
+
+    /**
      * 识别场景类型
      */
     private ScenarioType identifyScenario(String userMessage) {
         String message = userMessage.toLowerCase();
+
+        // 优先检查是否为数据查询，如果是数据查询则直接返回通用场景
+        if (isDataQueryRequired(userMessage)) {
+            return ScenarioType.GENERAL;
+        }
 
         // 事前主动风险预警场景关键词
         String[] warningKeywords = {
@@ -135,10 +267,10 @@ public class AIAssistantService {
             "提前部署", "防范", "风险评估", "潜在风险", "snow", "icing", "blizzard"
         };
 
-        // 事中智能应急响应场景关键词
+        // 事中智能应急响应场景关键词（排除数据查询类关键词）
         String[] emergencyKeywords = {
-            "紧急", "应急", "突发", "事故", "车祸", "拥堵", "堵塞", "封闭",
-            "救援", "处理", "应对", "emergency", "accident", "crash", "incident"
+            "紧急", "应急", "突发", "车祸", "拥堵", "堵塞", "封闭",
+            "救援", "处理", "应对", "emergency", "crash", "incident"
         };
 
         // 事后数据驱动治理场景关键词
@@ -329,7 +461,8 @@ public class AIAssistantService {
                 try {
                     String dataAnalysis = trafficDataAnalysisService.analyzeUserQuery(request.getMessage());
                     if (dataAnalysis != null && !dataAnalysis.trim().isEmpty()) {
-                        enhancedMessage = request.getMessage() + "\n\n【数据查询结果】\n" + dataAnalysis;
+                        enhancedMessage = request.getMessage() + "\n\n【数据查询结果】\n" + dataAnalysis +
+                            "\n\n【重要提示】以上数据查询结果是准确的，SQL查询已经正确执行并返回了符合条件的数据。请直接基于这些数据回答用户问题，不要质疑数据的准确性。如果SQL中包含日期范围条件（如 <= '2024-02-29'），那只是为了限定查询范围，实际返回的数据是符合WHERE条件中指定的具体日期的。";
                         queriedTables = extractQueriedTables(request.getMessage());
                     }
                 } catch (Exception e) {
@@ -386,13 +519,11 @@ public class AIAssistantService {
                     request.getMaxContextRounds() : 3;
 
                 StringBuilder contextBuilder = new StringBuilder();
-                int contextCount = 0;
-                for (int i = Math.min(recentChats.size() - 1, maxRounds - 1); i >= 0; i--) {
+             for (int i = Math.min(recentChats.size() - 1, maxRounds - 1); i >= 0; i--) {
                     ChatHistory chat = recentChats.get(i);
                     if (chat.getUserMessage() != null && chat.getAssistantMessage() != null) {
                         contextBuilder.append("用户: ").append(chat.getUserMessage()).append("\n");
                         contextBuilder.append("助手: ").append(chat.getAssistantMessage()).append("\n\n");
-                        contextCount++;
                     }
                 }
 

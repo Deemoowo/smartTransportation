@@ -1,5 +1,7 @@
 package org.example.smarttransportation.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +23,8 @@ import java.util.regex.Pattern;
 @Service
 public class NL2SQLService {
     
+    private static final Logger logger = LoggerFactory.getLogger(NL2SQLService.class);
+
     @Autowired
     private JdbcTemplate jdbcTemplate;
     
@@ -29,29 +33,39 @@ public class NL2SQLService {
 
     private ChatClient chatClient;
     
-    // 数据库表结构信息
+    // 数据库表结构信息 - 根据实际数据库表结构修正
     private static final String SCHEMA_INFO = """
         数据库表结构信息：
         
         1. citibike_trips_202402 - 共享单车出行数据 (2024年2月数据)
-        字段：started_at, start_station_name, ended_at, end_station_name, start_lat, start_lng, end_lat, end_lng
+        字段：start_station_name, started_at, end_lat, end_lng, end_station_name, ended_at, start_lat, start_lng
         
         2. complaints - 城市投诉数据
-        字段：unique_key, closed_at, agency, complaint_type, descriptor, status, resolution_description, latitude, longitude, borough, created_at
+        字段：unique_key, borough, created_at, latitude, longitude, agency, closed_at, complaint_type, descriptor, resolution_description, status
         
-        3. nyc_traffic_accidents - 机动车碰撞事故 (注意：数据为2024年2月)
-        字段：collision_id, crash_date, crash_time, borough, zip_code, latitude, longitude, on_street_name, cross_street_name, 
-               off_street_name, number_of_persons_injured, number_of_persons_killed, number_of_pedestrians_injured, 
-               number_of_pedestrians_killed, number_of_cyclist_injured, number_of_cyclist_killed, 
-               number_of_motorist_injured, number_of_motorist_killed, contributing_factor_vehicle_1, 
-               contributing_factor_vehicle_2, vehicle_type_code1, vehicle_type_code2
+        3. nyc_traffic_accidents - 机动车碰撞事故 (注意：数据为2024年2月，包含重复字段名)
+        主要字段：`CRASH DATE`, `CRASH TIME`, borough, `ZIP CODE`, latitude, longitude, `LOCATION`, `ON STREET NAME`, `CROSS STREET NAME`, 
+               `OFF STREET NAME`, `NUMBER OF PERSONS INJURED`, `NUMBER OF PERSONS KILLED`, `NUMBER OF PEDESTRIANS INJURED`, 
+               `NUMBER OF PEDESTRIANS KILLED`, `NUMBER OF CYCLIST INJURED`, `NUMBER OF CYCLIST KILLED`, 
+               `NUMBER OF MOTORIST INJURED`, `NUMBER OF MOTORIST KILLED`, `CONTRIBUTING FACTOR VEHICLE 1`, 
+               `CONTRIBUTING FACTOR VEHICLE 2`, collision_id, `VEHICLE TYPE CODE 1`, `VEHICLE TYPE CODE 2`, `CRASH_DATETIME`, created_at
+        备用字段：crash_date, crash_time, cross_street_name, number_of_cyclist_injured, number_of_cyclist_killed,
+               number_of_motorist_injured, number_of_motorist_killed, number_of_pedestrians_injured, 
+               number_of_pedestrians_killed, number_of_persons_injured, number_of_persons_killed, off_street_name, on_street_name, unique_key
         
-        4. nyc_permitted_events - 纽约许可活动数据 (注意：数据为2024年2月)
-        字段：event_id, event_name, start_at, end_at, event_borough, event_location, event_street_side, 
-               street_closure_type, latitude, longitude, geocode_query, geocode_status
+        4. nyc_permitted_events - 纽约许可活动数据 (注意：数据为2024年2月，包含重复字段名)
+        主要字段：`Event ID`, `Event Name`, `Start Date/Time`, `End Date/Time`, `Event Borough`, `Event Location`, `Event Street Side`, 
+               `Street Closure Type`, `Processed_Location`, `Location_Type`, latitude, longitude, geocode_query
+        备用字段：event_id, borough, created_at, end_at, event_borough, event_location, event_name, event_street_side, 
+               geocode_status, start_at, street_closure_type
         
         5. subway_ridership - 地铁客流数据 (注意：数据为2024年2月)
-        字段：transit_timestamp, station_complex_id, station_complex, borough, ridership, latitude, longitude, stratum
+        字段：station_complex_id, transit_timestamp, borough, created_at, latitude, longitude, ridership, station_complex, stratum
+        
+        重要提示：
+        - nyc_traffic_accidents和nyc_permitted_events表存在重复字段名（带空格的原始字段和下划线的标准化字段）
+        - 优先使用带反引号的原始字段名（如`CRASH DATE`），它们包含完整的原始数据
+        - 时间范围限制：所有查询必须限定在2024年2月1日至2024年2月29日
         """;
 
     /**
@@ -81,10 +95,19 @@ public class NL2SQLService {
                 .content();
 
             // 提取SQL语句
-            return extractSQL(sqlResult);
+            String extractedSQL = extractSQL(sqlResult);
+
+            // 如果AI生成的SQL为空或无效，回退到规则匹配
+            if (!StringUtils.hasText(extractedSQL)) {
+                logger.warn("AI生成的SQL为空，回退到规则匹配。原始响应: {}", sqlResult);
+                return generateSQLByRules(naturalLanguageQuery);
+            }
+
+            return extractedSQL;
 
         } catch (Exception e) {
             // AI转换失败时，回退到规则匹配
+            logger.warn("AI转换失败，回退到规则匹配: {}", e.getMessage());
             return generateSQLByRules(naturalLanguageQuery);
         }
     }
@@ -132,7 +155,7 @@ public class NL2SQLService {
             3. 确保查询安全，只允许SELECT操作
             4. 所有时间相关的查询必须限定在2024年2月1日至2024年2月29日范围内
             5. 如果涉及地理位置，可以使用latitude和longitude字段
-            6. 限制返回结果数量，添加LIMIT子句（建议100以内）
+            6. 不要添加LIMIT子句，返回所有符合条件的数据
             7. 注意：数据库中存储的是2024年2月的历史数据，不要查询最近的数据
             
             SQL查询：
@@ -148,66 +171,69 @@ public class NL2SQLService {
         // 共享单车相关查询
         if (lowerQuery.contains("单车") || lowerQuery.contains("citibike") || lowerQuery.contains("bike")) {
             if (lowerQuery.contains("站点") || lowerQuery.contains("station")) {
-                return "SELECT start_station_name, COUNT(*) as trip_count FROM citibike_trips_202402 GROUP BY start_station_name ORDER BY trip_count DESC LIMIT 10";
+                return "SELECT start_station_name, COUNT(*) as trip_count FROM citibike_trips_202402 GROUP BY start_station_name ORDER BY trip_count DESC";
             }
             if (lowerQuery.contains("时间") || lowerQuery.contains("duration")) {
-                return "SELECT AVG(TIMESTAMPDIFF(MINUTE, started_at, ended_at)) as avg_duration FROM citibike_trips_202402 WHERE started_at IS NOT NULL AND ended_at IS NOT NULL LIMIT 100";
+                return "SELECT AVG(TIMESTAMPDIFF(MINUTE, started_at, ended_at)) as avg_duration FROM citibike_trips_202402 WHERE started_at IS NOT NULL AND ended_at IS NOT NULL";
             }
-            return "SELECT * FROM citibike_trips_202402 LIMIT 10";
+            return "SELECT * FROM citibike_trips_202402";
         }
 
         // 投诉相关查询
         if (lowerQuery.contains("投诉") || lowerQuery.contains("complaint")) {
             if (lowerQuery.contains("类型") || lowerQuery.contains("type")) {
-                return "SELECT complaint_type, COUNT(*) as count FROM complaints GROUP BY complaint_type ORDER BY count DESC LIMIT 10";
+                return "SELECT complaint_type, COUNT(*) as count FROM complaints GROUP BY complaint_type ORDER BY count DESC";
             }
             if (lowerQuery.contains("状态") || lowerQuery.contains("status")) {
-                return "SELECT status, COUNT(*) as count FROM complaints GROUP BY status LIMIT 10";
+                return "SELECT status, COUNT(*) as count FROM complaints GROUP BY status";
             }
-            return "SELECT * FROM complaints LIMIT 10";
+            return "SELECT * FROM complaints";
         }
 
         // 事故相关查询
         if (lowerQuery.contains("事故") || lowerQuery.contains("collision") || lowerQuery.contains("accident")) {
+            if (lowerQuery.contains("多少") || lowerQuery.contains("数量") || lowerQuery.contains("统计") || lowerQuery.contains("count") || lowerQuery.contains("how many")) {
+                return "SELECT COUNT(*) as total_accidents FROM nyc_traffic_accidents WHERE `CRASH DATE` >= '2024-02-01' AND `CRASH DATE` <= '2024-02-29'";
+            }
             if (lowerQuery.contains("伤亡") || lowerQuery.contains("injured") || lowerQuery.contains("killed")) {
-                return "SELECT SUM(number_of_persons_injured) as total_injured, SUM(number_of_persons_killed) as total_killed FROM nyc_traffic_accidents WHERE crash_date >= '2024-02-01' AND crash_date <= '2024-02-29'";
+                return "SELECT SUM(`NUMBER OF PERSONS INJURED`) as total_injured, SUM(`NUMBER OF PERSONS KILLED`) as total_killed FROM nyc_traffic_accidents WHERE `CRASH DATE` >= '2024-02-01' AND `CRASH DATE` <= '2024-02-29'";
             }
             if (lowerQuery.contains("区域") || lowerQuery.contains("borough")) {
-                return "SELECT borough, COUNT(*) as accident_count FROM nyc_traffic_accidents WHERE borough IS NOT NULL AND crash_date >= '2024-02-01' AND crash_date <= '2024-02-29' GROUP BY borough ORDER BY accident_count DESC LIMIT 10";
+                return "SELECT `BOROUGH`, COUNT(*) as accident_count FROM nyc_traffic_accidents WHERE `BOROUGH` IS NOT NULL AND `CRASH DATE` >= '2024-02-01' AND `CRASH DATE` <= '2024-02-29' GROUP BY `BOROUGH` ORDER BY accident_count DESC";
             }
             if (lowerQuery.contains("严重") || lowerQuery.contains("严重事故")) {
-                return "SELECT * FROM nyc_traffic_accidents WHERE (number_of_persons_killed > 0 OR number_of_persons_injured >= 3) AND crash_date >= '2024-02-01' AND crash_date <= '2024-02-29' ORDER BY number_of_persons_killed DESC, number_of_persons_injured DESC LIMIT 100";
+                return "SELECT * FROM nyc_traffic_accidents WHERE (`NUMBER OF PERSONS KILLED` > 0 OR `NUMBER OF PERSONS INJURED` >= 3) AND `CRASH DATE` >= '2024-02-01' AND `CRASH DATE` <= '2024-02-29' ORDER BY `NUMBER OF PERSONS KILLED` DESC, `NUMBER OF PERSONS INJURED` DESC";
             }
-            return "SELECT * FROM nyc_traffic_accidents WHERE crash_date >= '2024-02-01' AND crash_date <= '2024-02-29' LIMIT 10";
+            return "SELECT * FROM nyc_traffic_accidents WHERE `CRASH DATE` >= '2024-02-01' AND `CRASH DATE` <= '2024-02-29'";
         }
 
         // 地铁相关查询
         if (lowerQuery.contains("地铁") || lowerQuery.contains("subway") || lowerQuery.contains("客流")) {
             if (lowerQuery.contains("站点") || lowerQuery.contains("station")) {
-                return "SELECT station_complex, AVG(ridership) as avg_ridership FROM subway_ridership WHERE transit_timestamp >= '2024-02-01' AND transit_timestamp <= '2024-02-29' GROUP BY station_complex ORDER BY avg_ridership DESC LIMIT 10";
+                return "SELECT station_complex, AVG(ridership) as avg_ridership FROM subway_ridership WHERE transit_timestamp >= '2024-02-01' AND transit_timestamp <= '2024-02-29' GROUP BY station_complex ORDER BY avg_ridership DESC";
             }
             if (lowerQuery.contains("客流量") || lowerQuery.contains("ridership")) {
-                return "SELECT DATE(transit_timestamp) as date, SUM(ridership) as total_ridership FROM subway_ridership WHERE transit_timestamp >= '2024-02-01' AND transit_timestamp <= '2024-02-29' GROUP BY DATE(transit_timestamp) ORDER BY date DESC LIMIT 10";
+                return "SELECT DATE(transit_timestamp) as date, SUM(ridership) as total_ridership FROM subway_ridership WHERE transit_timestamp >= '2024-02-01' AND transit_timestamp <= '2024-02-29' GROUP BY DATE(transit_timestamp) ORDER BY date DESC";
             }
-            return "SELECT * FROM subway_ridership WHERE transit_timestamp >= '2024-02-01' AND transit_timestamp <= '2024-02-29' LIMIT 10";
+            return "SELECT * FROM subway_ridership WHERE transit_timestamp >= '2024-02-01' AND transit_timestamp <= '2024-02-29'";
         }
 
         // 活动相关查询
         if (lowerQuery.contains("活动") || lowerQuery.contains("event")) {
             if (lowerQuery.contains("类型") || lowerQuery.contains("type")) {
-                return "SELECT event_name, COUNT(*) as count FROM nyc_permitted_events WHERE start_at >= '2024-02-01' AND start_at <= '2024-02-29' GROUP BY event_name ORDER BY count DESC LIMIT 10";
+                return "SELECT `Event Name`, COUNT(*) as count FROM nyc_permitted_events WHERE `Start Date/Time` >= '2024-02-01' AND `Start Date/Time` <= '2024-02-29' GROUP BY `Event Name` ORDER BY count DESC";
             }
             if (lowerQuery.contains("时间") || lowerQuery.contains("近期")) {
-                return "SELECT * FROM nyc_permitted_events WHERE start_at >= '2024-02-01' AND start_at <= '2024-02-29' ORDER BY start_at DESC LIMIT 10";
+                return "SELECT * FROM nyc_permitted_events WHERE `Start Date/Time` >= '2024-02-01' AND `Start Date/Time` <= '2024-02-29' ORDER BY `Start Date/Time` DESC";
             }
-            return "SELECT * FROM nyc_permitted_events WHERE start_at >= '2024-02-01' AND start_at <= '2024-02-29' LIMIT 10";
+            return "SELECT * FROM nyc_permitted_events WHERE `Start Date/Time` >= '2024-02-01' AND `Start Date/Time` <= '2024-02-29'";
         }
 
         // 默认查询
         return "SELECT 'citibike_trips_202402' as table_name, COUNT(*) as record_count FROM citibike_trips_202402 " +
                "UNION ALL SELECT 'complaints', COUNT(*) FROM complaints " +
-               "UNION ALL SELECT 'nyc_traffic_accidents', COUNT(*) FROM nyc_traffic_accidents WHERE crash_date >= '2024-02-01' AND crash_date <= '2024-02-29' " +
-               "UNION ALL SELECT 'nyc_permitted_events', COUNT(*) FROM nyc_permitted_events WHERE start_at >= '2024-02-01' AND start_at <= '2024-02-29' " +
+               "UNION ALL SELECT 'nyc_traffic_accidents', COUNT(*) FROM nyc_traffic_accidents WHERE `CRASH DATE` >= '2024-02-01' AND `CRASH DATE` <= '2024-02-29' " +
+               "UNION ALL SELECT 'nyc_permitted_events', COUNT(*) FROM nyc_permitted_events WHERE `Start Date/Time` >= '2024-02-01' AND `Start Date/Time` <= '2024-02-29' " +
                "UNION ALL SELECT 'subway_ridership', COUNT(*) FROM subway_ridership WHERE transit_timestamp >= '2024-02-01' AND transit_timestamp <= '2024-02-29'";
     }
 
@@ -262,7 +288,7 @@ public class NL2SQLService {
     }
 
     /**
-     * 验证SQL语句是否有效（基本检查）
+     * 验证SQL语句是否有效（基本检查和字段验证）
      */
     private boolean isValidSQL(String sql) {
         if (!StringUtils.hasText(sql)) {
@@ -286,7 +312,65 @@ public class NL2SQLService {
             return false;
         }
 
-        return true;
+        // 验证字段名是否存在于实际表中
+        return validateFieldNames(sql);
+    }
+
+    /**
+     * 验证SQL中的字段名是否存在于实际表结构中
+     */
+    private boolean validateFieldNames(String sql) {
+        try {
+            // 基本的字段名验证 - 检查常见的错误字段名
+            String lowerSQL = sql.toLowerCase();
+
+            // 检查nyc_traffic_accidents表的字段
+            if (lowerSQL.contains("nyc_traffic_accidents")) {
+                // 检查是否使用了不推荐的字段名格式（仅警告，不阻止）
+                if (lowerSQL.contains("crash_date") && !lowerSQL.contains("`crash date`") && !lowerSQL.contains("`crash_datetime`")) {
+                    logger.warn("建议使用 `CRASH DATE` 或 `CRASH_DATETIME` 字段");
+                }
+                if (lowerSQL.contains("number_of_persons_injured") && !lowerSQL.contains("`number of persons injured`")) {
+                    logger.warn("建议使用 `NUMBER OF PERSONS INJURED` 而不是 number_of_persons_injured");
+                }
+
+                // 检查是否使用了真正不存在的字段名
+                // 注意：crash_datetime、crash_date等字段实际存在（有大写版本），不应阻止
+                String[] invalidFields = {"borough_name", "accident_id", "crash_location_id"};
+                for (String field : invalidFields) {
+                    if (lowerSQL.contains(field)) {
+                        logger.error("使用了不存在的字段: {}", field);
+                        return false;
+                    }
+                }
+            }
+
+            // 检查nyc_permitted_events表的字段
+            if (lowerSQL.contains("nyc_permitted_events")) {
+                // 检查是否使用了不推荐的字段名格式
+                if (lowerSQL.contains("start_at") && !lowerSQL.contains("`start date/time`")) {
+                    logger.warn("建议使用 `Start Date/Time` 而不是 start_at");
+                }
+                if (lowerSQL.contains("event_name") && !lowerSQL.contains("`event name`")) {
+                    logger.warn("建议使用 `Event Name` 而不是 event_name");
+                }
+
+                // 检查是否使用了不存在的字段名
+                String[] invalidFields = {"event_type", "permit_id", "location_id"};
+                for (String field : invalidFields) {
+                    if (lowerSQL.contains(field)) {
+                        logger.error("使用了不存在的字段: {}", field);
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        } catch (Exception e) {
+            logger.error("字段验证过程出错: {}", e.getMessage());
+            // 如果验证过程出错，返回true以避免阻塞正常查询
+            return true;
+        }
     }
 
     /**
