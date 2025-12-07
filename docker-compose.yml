@@ -57,7 +57,7 @@ services:
     image: mysql:8.0
     container_name: smart-transport-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: Qwert_1245
+      MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: smart_transportation
     ports:
       - "3306:3306"
