@@ -19,6 +19,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import org.example.smarttransportation.dto.ChartData;
+import java.util.ArrayList;
+
 /**
  * 交通数据分析服务
  * 为AI助手提供数据查询和分析能力
@@ -45,16 +48,50 @@ public class TrafficDataAnalysisService {
 
     @Autowired
     private NL2SQLService nl2SQLService;
+    
+    @Autowired
+    private MetadataCacheService metadataCacheService;
 
     /**
-     * 分析用户查询并返回相关数据摘要
+     * 分析用户查询并返回相关数据摘要 (兼容旧接口)
      */
     public String analyzeUserQuery(String userQuery) {
+        return analyzeUserQuery(userQuery, null);
+    }
+
+    /**
+     * 分析用户查询并返回相关数据摘要 (支持元数据缓存)
+     */
+    public String analyzeUserQuery(String userQuery, String sessionId) {
         try {
+            if (sessionId != null) {
+                metadataCacheService.addThought(sessionId, "收到交通数据查询请求: " + userQuery);
+                metadataCacheService.addThought(sessionId, "正在将自然语言转换为 SQL 查询...");
+            }
+
             // 首先尝试使用NL2SQL服务处理查询
             NL2SQLService.QueryResult queryResult = nl2SQLService.executeQuery(userQuery);
 
             if (queryResult.isSuccess() && queryResult.getData() != null && !queryResult.getData().isEmpty()) {
+                
+                // 如果有sessionId，生成图表并缓存
+                if (sessionId != null) {
+                    metadataCacheService.addThought(sessionId, "SQL生成成功: " + queryResult.getSql());
+                    metadataCacheService.addThought(sessionId, "数据库查询成功，获取到 " + queryResult.getData().size() + " 条记录");
+                    
+                    List<ChartData> charts = buildChartsFromQueryData(queryResult.getData());
+                    if (!charts.isEmpty()) {
+                        metadataCacheService.addCharts(sessionId, charts);
+                        metadataCacheService.setSummary(sessionId, "已查询交通相关数据并整合到回答中");
+                        metadataCacheService.addThought(sessionId, "已根据查询结果生成 " + charts.size() + " 张可视化图表");
+                    }
+                    // 简单推断查询的表名（这里简化处理，实际可以从SQL解析）
+                    List<String> tables = new ArrayList<>();
+                    if (queryResult.getSql().toLowerCase().contains("accident")) tables.add("nyc_traffic_accidents");
+                    if (queryResult.getSql().toLowerCase().contains("subway")) tables.add("subway_ridership");
+                    metadataCacheService.addQueriedTables(sessionId, tables);
+                }
+
                 StringBuilder analysis = new StringBuilder();
                 analysis.append("【数据查询结果】\n");
 
@@ -65,33 +102,60 @@ public class TrafficDataAnalysisService {
 
                 // 格式化查询结果
                 List<Map<String, Object>> data = queryResult.getData();
-                analysis.append(String.format("查询到 %d 条记录：\n", data.size()));
+                analysis.append(String.format("查询到 %d 条记录。\n", data.size()));
 
-                // 限制显示前10条记录，避免输出过长
-                int displayCount = Math.min(data.size(), 10);
-                for (int i = 0; i < displayCount; i++) {
-                    Map<String, Object> row = data.get(i);
-                    analysis.append(String.format("%d. ", i + 1));
+                // 智能摘要：按 data_type 分组统计（如果存在）
+                Map<String, List<Map<String, Object>>> groupedData = data.stream()
+                    .collect(Collectors.groupingBy(row -> {
+                        Object type = row.get("data_type");
+                        return type != null ? type.toString() : "default";
+                    }));
 
-                    // 格式化每行数据
-                    for (Map.Entry<String, Object> entry : row.entrySet()) {
-                        String key = entry.getKey();
-                        Object value = entry.getValue();
-
-                        // 简化字段名显示
-                        String displayKey = simplifyFieldName(key);
-                        analysis.append(String.format("%s: %s, ", displayKey, value));
-                    }
-
-                    // 移除最后的逗号和空格
-                    if (analysis.length() > 2) {
-                        analysis.setLength(analysis.length() - 2);
-                    }
-                    analysis.append("\n");
+                if (groupedData.size() > 1) {
+                    analysis.append("数据分布：\n");
+                    groupedData.forEach((type, list) -> 
+                        analysis.append(String.format("- %s: %d 条\n", type, list.size()))
+                    );
                 }
 
-                if (data.size() > displayCount) {
-                    analysis.append(String.format("... 还有 %d 条记录\n", data.size() - displayCount));
+                analysis.append("\n【详细数据采样】\n");
+                
+                // 对每种类型的数据展示前 5 条
+                for (Map.Entry<String, List<Map<String, Object>>> entry : groupedData.entrySet()) {
+                    String type = entry.getKey();
+                    List<Map<String, Object>> rows = entry.getValue();
+                    
+                    if (!"default".equals(type)) {
+                        analysis.append(String.format("\n--- %s (前5条) ---\n", type));
+                    }
+
+                    int displayCount = Math.min(rows.size(), 5);
+                    for (int i = 0; i < displayCount; i++) {
+                        Map<String, Object> row = rows.get(i);
+                        analysis.append(String.format("%d. ", i + 1));
+
+                        // 格式化每行数据
+                        for (Map.Entry<String, Object> field : row.entrySet()) {
+                            String key = field.getKey();
+                            Object value = field.getValue();
+                            // 跳过 data_type 字段，因为已经在标题中显示了
+                            if ("data_type".equals(key)) continue;
+                            // 跳过空值
+                            if (value == null) continue;
+
+                            String displayKey = simplifyFieldName(key);
+                            analysis.append(String.format("%s: %s, ", displayKey, value));
+                        }
+
+                        // 移除最后的逗号和空格
+                        if (analysis.length() > 2) {
+                            int lastComma = analysis.lastIndexOf(", ");
+                            if (lastComma > 0 && lastComma == analysis.length() - 2) {
+                                analysis.setLength(lastComma);
+                            }
+                        }
+                        analysis.append("\n");
+                    }
                 }
 
                 return analysis.toString();
@@ -161,6 +225,123 @@ public class TrafficDataAnalysisService {
         return analysis.toString().trim();
     }
 
+    private List<ChartData> buildChartsFromQueryData(List<Map<String, Object>> queryData) {
+        List<ChartData> charts = new ArrayList<>();
+        if (queryData == null || queryData.isEmpty()) {
+            return charts;
+        }
+
+        // 检查是否存在 data_type 字段
+        boolean hasDataType = queryData.get(0).containsKey("data_type");
+
+        if (hasDataType) {
+            // 按 data_type 分组生成图表
+            Map<String, List<Map<String, Object>>> grouped = queryData.stream()
+                .collect(Collectors.groupingBy(row -> {
+                    Object val = row.get("data_type");
+                    return val != null ? val.toString() : "default";
+                }));
+            
+            for (Map.Entry<String, List<Map<String, Object>>> entry : grouped.entrySet()) {
+                String type = entry.getKey();
+                List<Map<String, Object>> groupData = entry.getValue();
+                charts.addAll(generateChartsForData(groupData, type));
+            }
+        } else {
+            charts.addAll(generateChartsForData(queryData, null));
+        }
+        
+        return charts;
+    }
+
+    private List<ChartData> generateChartsForData(List<Map<String, Object>> queryData, String groupName) {
+        List<ChartData> charts = new ArrayList<>();
+        if (queryData == null || queryData.isEmpty()) {
+            return charts;
+        }
+
+        Map<String, Object> firstRow = queryData.get(0);
+        String labelKey = null;
+        String valueKey = null;
+
+        // 自动推断图表类型和数据列
+        for (Map.Entry<String, Object> entry : firstRow.entrySet()) {
+            String key = entry.getKey();
+            // 如果已经按 data_type 分组，则不再将其作为 label，除非没有其他选择
+            if ("data_type".equals(key) && groupName != null && firstRow.size() > 2) {
+                continue;
+            }
+
+            if (labelKey == null && !(entry.getValue() instanceof Number)) {
+                labelKey = key;
+            }
+            if (valueKey == null && entry.getValue() instanceof Number) {
+                valueKey = key;
+            }
+        }
+
+        // 如果没找到 labelKey，尝试使用 data_type 或者任意 key
+        if (labelKey == null && !firstRow.isEmpty()) {
+             // 优先找非数字
+             for (String key : firstRow.keySet()) {
+                 if (!"data_type".equals(key) || groupName == null) {
+                     labelKey = key;
+                     break;
+                 }
+             }
+             // 实在不行就用第一个
+             if (labelKey == null) labelKey = firstRow.keySet().iterator().next();
+        }
+        
+        if (valueKey == null) {
+            return charts;
+        }
+
+        List<String> labels = new ArrayList<>();
+        List<Double> values = new ArrayList<>();
+        int maxPoints = 20;
+
+        for (Map<String, Object> row : queryData) {
+            if (row == null) continue;
+            Object valueObj = row.get(valueKey);
+            if (!(valueObj instanceof Number)) continue;
+            
+            Object labelObj = row.get(labelKey);
+            labels.add(labelObj != null ? labelObj.toString() : "未知");
+            values.add(((Number) valueObj).doubleValue());
+
+            if (labels.size() >= maxPoints) break;
+        }
+
+        if (labels.isEmpty()) return charts;
+
+        String chartType = "bar";
+        if (labelKey != null) {
+            String lower = labelKey.toLowerCase();
+            if (lower.contains("date") || lower.contains("time")) {
+                chartType = "line";
+            }
+        }
+
+        String displayValueKey = simplifyFieldName(valueKey);
+        String displayLabelKey = simplifyFieldName(labelKey);
+        String title = displayValueKey + "统计 (按" + displayLabelKey + ")";
+        
+        if (groupName != null) {
+            title = groupName + " - " + title;
+        }
+
+        ChartData chart = ChartData.singleSeries(
+            title,
+            chartType,
+            labels,
+            values,
+            valueKey
+        );
+        charts.add(chart);
+        return charts;
+    }
+
     /**
      * 简化字段名显示
      */
@@ -193,6 +374,8 @@ public class TrafficDataAnalysisService {
             case "start date/time":
             case "`start date/time`":
                 return "开始时间";
+            case "source_table":
+                return "数据来源";
             default:
                 return fieldName;
         }

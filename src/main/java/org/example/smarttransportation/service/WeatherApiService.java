@@ -51,42 +51,55 @@ public class WeatherApiService {
 
     @Value("${weather.api.end-date:2024-02-29}")
     private String endDate;
+    
+    private final MetadataCacheService metadataCacheService;
 
-    /**
-     * 根据用户消息判定是否需要返回曼哈顿 2024 年 2 月天气
-     */
-    public WeatherAnswer findWeatherAnswerForMessage(String userMessage) {
-        if (!StringUtils.hasText(userMessage)) {
-            return null;
-        }
-        String message = userMessage.toLowerCase(Locale.ROOT);
-
-        boolean hasWeatherKeyword = message.contains("天气") || message.contains("weather");
-        boolean hasLocation = message.contains("曼哈顿") || message.contains("manhattan");
-        boolean hasFeb2024 = message.contains("2024年2") || message.contains("2024-02")
-                || message.contains("2024/02") || message.contains("february 2024")
-                || message.contains("feb 2024");
-
-        // 降低触发门槛：只要提到天气就返回曼哈顿 2024 年 2 月默认数据
-        if (hasWeatherKeyword) {
-            return fetchManhattanFeb2024Weather();
-        }
-        return null;
+    public WeatherApiService(MetadataCacheService metadataCacheService) {
+        this.metadataCacheService = metadataCacheService;
     }
 
     /**
      * 获取曼哈顿 2024 年 2 月天气数据（优先 API，失败回退本地样例）
      */
     public WeatherAnswer fetchManhattanFeb2024Weather() {
+        return fetchManhattanFeb2024Weather(null);
+    }
+
+    /**
+     * 获取曼哈顿 2024 年 2 月天气数据（支持元数据缓存）
+     */
+    public WeatherAnswer fetchManhattanFeb2024Weather(String sessionId) {
+        if (sessionId != null) {
+            metadataCacheService.addThought(sessionId, "正在调用天气服务获取曼哈顿2024年2月气象数据...");
+        }
+
         List<DailyWeather> dailyWeather = fetchFromApi();
         boolean fromApi = true;
 
         if (dailyWeather == null || dailyWeather.isEmpty()) {
+            if (sessionId != null) {
+                metadataCacheService.addThought(sessionId, "天气API调用失败或未配置，切换至本地备用数据源...");
+            }
             dailyWeather = fallbackWeather();
             fromApi = false;
+        } else if (sessionId != null) {
+            metadataCacheService.addThought(sessionId, "天气API调用成功，获取到 " + dailyWeather.size() + " 天的气象记录");
         }
 
-        return buildAnswer(dailyWeather, fromApi);
+        WeatherAnswer answer = buildAnswer(dailyWeather, fromApi);
+        
+        if (sessionId != null && answer != null) {
+            if (answer.getCharts() != null && !answer.getCharts().isEmpty()) {
+                metadataCacheService.addCharts(sessionId, answer.getCharts());
+                metadataCacheService.setSummary(sessionId, "已接入天气数据并生成图表");
+                metadataCacheService.addThought(sessionId, "已生成气温趋势和降水分布图表");
+            }
+            List<String> tables = new ArrayList<>();
+            tables.add("weather_api_manhattan_2024_02");
+            metadataCacheService.addQueriedTables(sessionId, tables);
+        }
+        
+        return answer;
     }
 
     private List<DailyWeather> fetchFromApi() {

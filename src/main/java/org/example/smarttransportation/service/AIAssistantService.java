@@ -58,6 +58,9 @@ public class AIAssistantService {
 
     @Autowired
     private ObjectMapper objectMapper;
+    
+    @Autowired
+    private MetadataCacheService metadataCacheService;
 
     public AIAssistantService(ChatModel chatModel) {
         // 构建ChatClient，设置专门的交通助手参数
@@ -68,29 +71,25 @@ public class AIAssistantService {
                                 .withTemperature(0.7)
                                 .build()
                 )
+                .defaultFunctions("trafficQuery", "weatherQuery", "webSearch")
                 .defaultSystem("""
-                    你是T-Agent，一个专业的智慧交通AI助手。你的主要职责是：
+                    你是T-Agent，一个专业的智慧交通AI助手。
                     
-                    1. 帮助用户分析纽约市曼哈顿区的交通数据和风险
-                    2. 基于实时数据提供交通风险预警和建议
-                    3. 回答关于交通事故、天气影响、许可事件和地铁客流的问题
-                    4. 提供专业的交通管理建议和决策支持
-                    5. 利用互联网搜索获取最新的交通新闻、政策和实时路况
+                    【核心职责】
+                    1. 交通数据分析：分析纽约曼哈顿区的交通事故、地铁客流、许可事件等数据。
+                    2. 风险预警：基于数据提供交通风险预警。
+                    3. 决策支持：提供交通管理建议。
                     
-                    你可以访问以下数据：
-                    - 交通事故数据 (nyc_traffic_accidents)
-                    - 天气数据（通过外部天气 API）
-                    - 许可事件数据 (nyc_permitted_events)
-                    - 地铁客流数据 (subway_ridership)
-                    - 互联网实时信息 (通过 webSearch 工具)
+                    【工具使用指南】
+                    - trafficQuery: **必须优先使用**。当用户询问"交通怎么样"、"拥堵情况"、"事故统计"、"客流趋势"或任何与交通状况相关的问题时，必须调用此工具。不要仅依赖天气数据来推断交通状况。
+                    - weatherQuery: 当用户明确询问天气，或需要分析天气对交通的影响时使用。
+                    - webSearch: 仅在本地数据不足或需要实时新闻时使用。
                     
-                    重要规则：
-                    1. 当系统提供【数据查询结果】时，这些数据是经过SQL查询验证的准确数据，请直接使用，不要质疑其准确性
-                    2. SQL查询中的日期范围条件（如 CRASH_DATETIME <= '2024-02-29 23:59:59'）只是为了限定查询范围，实际返回的数据是符合WHERE条件中所有条件的（包括具体日期如 CRASH DATE = '2024-02-10'）
-                    3. 不要因为看到SQL中的日期范围就误判返回的数据日期，要以实际返回的数据记录中的日期字段为准
+                    【关键规则】
+                    1. **Session ID 传递**：调用 `trafficQuery` 或 `weatherQuery` 时，**必须**将用户提示中提供的 `Current Session ID` 填入工具的 `sessionId` 参数。如果缺少此参数，工具将无法记录思考过程。
+                    2. **思考过程**：在回答前，先思考需要哪些数据，然后调用相应工具。
                     
-                    请用专业但友好的语调回答，并在适当时候主动提供相关的数据洞察。
-                    如果用户的问题涉及数据查询，请在回答中明确说明你查询了哪些数据源。
+                    请用专业、数据驱动的方式回答。
                     """)
                 .build();
     }
@@ -162,41 +161,12 @@ public class AIAssistantService {
 
     private Flux<String> streamGeneralScenario(ChatRequest request, String sessionId, long startTime) {
         // 1. 准备上下文
-        boolean needsDataQuery = isDataQueryRequired(request.getMessage());
-        String enhancedMessage = request.getMessage();
-        List<String> queriedTables = new ArrayList<>();
-        
-        if (needsDataQuery) {
-             try {
-                String dataAnalysis = trafficDataAnalysisService.analyzeUserQuery(request.getMessage());
-                if (dataAnalysis != null && !dataAnalysis.trim().isEmpty()) {
-                    enhancedMessage = request.getMessage() + "\n\n【数据查询结果】\n" + dataAnalysis;
-                    queriedTables = extractQueriedTables(request.getMessage());
-                }
-            } catch (Exception e) {
-                logger.warn("数据查询失败: {}", e.getMessage());
-                enhancedMessage = request.getMessage() + "\n\n注意：当前无法访问实时数据，回答基于一般知识。";
-            }
-        }
-
-        WeatherAnswer weatherAnswer = weatherApiService.findWeatherAnswerForMessage(request.getMessage());
-        if (weatherAnswer != null) {
-            needsDataQuery = true;
-            queriedTables.add("weather_api_manhattan_2024_02");
-            enhancedMessage = enhancedMessage + "\n\n【天气数据支持】\n" + weatherAnswer.getSummary();
-        }
-
-        ChatClient.ChatClientRequestSpec requestSpec = chatClient.prompt();
-
-        if (Boolean.TRUE.equals(request.getEnableSearch())) {
-             requestSpec.functions("webSearch");
-             enhancedMessage += "\n\n【系统提示】用户已开启深度搜索模式。请务必使用 'webSearch' 工具搜索互联网上的最新信息来补充你的回答，特别是当本地数据不足或过时的时候。不要仅依赖训练数据。";
-        }
+        String userMessage = request.getMessage();
+        StringBuilder contextBuilder = new StringBuilder();
 
         if (request.getIncludeContext() != null && request.getIncludeContext()) {
              List<ChatHistory> recentChats = chatHistoryRepository.findRecentChatsBySessionId(sessionId);
              int maxRounds = request.getMaxContextRounds() != null ? request.getMaxContextRounds() : 3;
-             StringBuilder contextBuilder = new StringBuilder();
              for (int i = Math.min(recentChats.size() - 1, maxRounds - 1); i >= 0; i--) {
                 ChatHistory chat = recentChats.get(i);
                 if (chat.getUserMessage() != null && chat.getAssistantMessage() != null) {
@@ -204,64 +174,44 @@ public class AIAssistantService {
                     contextBuilder.append("助手: ").append(chat.getAssistantMessage()).append("\n\n");
                 }
             }
-            if (contextBuilder.length() > 0) {
-                enhancedMessage = "【对话历史】\n" + contextBuilder.toString() + "【当前问题】\n" + enhancedMessage;
-            }
         }
+        
+        String finalPrompt = contextBuilder.length() > 0 
+            ? "【对话历史】\n" + contextBuilder.toString() + "【当前问题】\n" + userMessage
+            : userMessage;
 
-        // 2. 调用流式API
+        // 2. 调用流式API (ReAct模式，工具已在构造函数中注册)
         StringBuilder fullResponseBuilder = new StringBuilder();
-
-        // 准备元数据
-        List<ChartData> charts = new ArrayList<>();
-        if (weatherAnswer != null && weatherAnswer.getCharts() != null) {
-            charts.addAll(weatherAnswer.getCharts());
+        
+        // 如果用户开启了搜索，可以在这里额外提示模型
+        if (Boolean.TRUE.equals(request.getEnableSearch())) {
+            finalPrompt += "\n\n(用户已开启深度搜索模式，请积极使用 webSearch 工具)";
         }
+        
+        // 注入Session ID
+        finalPrompt += String.format("\n\n[SYSTEM INSTRUCTION]\nCurrent Session ID: %s\n(You MUST pass this ID to any tool calls to enable thought process logging.)", sessionId);
 
-        if (needsDataQuery && nl2sqlService != null && nl2sqlService.isNL2SQLServiceAvailable()) {
-            try {
-                NL2SQLService.QueryResult sqlResult = nl2sqlService.executeQuery(request.getMessage());
-                if (sqlResult != null && sqlResult.isSuccess()
-                        && sqlResult.getData() != null && !sqlResult.getData().isEmpty()) {
-                    List<ChartData> queryCharts = buildChartsFromQueryData(sqlResult.getData());
-                    if (!queryCharts.isEmpty()) {
-                        charts.addAll(queryCharts);
-                    }
-                }
-            } catch (Exception e) {
-                logger.warn("流式模式基于数据查询生成图表失败: {}", e.getMessage());
-            }
-        }
-
-        boolean finalNeedsDataQuery = needsDataQuery || !charts.isEmpty();
-        List<String> finalQueriedTables = queriedTables;
-
-        ChatResponse metaResponse = new ChatResponse();
-        metaResponse.setInvolvesDataQuery(finalNeedsDataQuery);
-        metaResponse.setQueriedTables(finalQueriedTables);
-        metaResponse.setCharts(charts);
-        if (finalNeedsDataQuery && (!finalQueriedTables.isEmpty() || !charts.isEmpty())) {
-             String summary = "已查询交通相关数据并整合到回答中";
-             if (weatherAnswer != null) {
-                 summary = !charts.isEmpty() ? "已接入天气数据并生成图表" : "已接入天气数据";
-             } else if (!charts.isEmpty()) {
-                 summary = "已生成数据图表用于辅助说明";
-             }
-             metaResponse.setDataQuerySummary(summary);
-        }
-
-        Flux<String> aiStream = requestSpec.user(enhancedMessage)
+        Flux<String> aiStream = chatClient.prompt()
+                .user(finalPrompt)
                 .stream()
                 .content()
                 .doOnNext(fullResponseBuilder::append)
                 .doOnComplete(() -> {
-                    saveChatHistory(sessionId, request.getMessage(), fullResponseBuilder.toString(), finalNeedsDataQuery, finalQueriedTables);
+                    // 保存历史，暂时无法获取具体的工具调用详情
+                    saveChatHistory(sessionId, request.getMessage(), fullResponseBuilder.toString(), false, new ArrayList<>());
                 })
                 .doOnError(e -> logger.error("流式生成失败", e));
                 
-        // 在流结束后追加元数据
+        // 3. 从缓存中获取元数据并追加
         return aiStream.concatWith(Mono.fromCallable(() -> {
             try {
+                ChatResponse metaResponse = metadataCacheService.getAndClear(sessionId);
+                if (metaResponse == null) {
+                    metaResponse = new ChatResponse();
+                    metaResponse.setInvolvesDataQuery(false);
+                    metaResponse.setQueriedTables(new ArrayList<>());
+                    metaResponse.setCharts(new ArrayList<>());
+                }
                 return "[METADATA]" + objectMapper.writeValueAsString(metaResponse);
             } catch (Exception e) {
                 logger.error("序列化元数据失败", e);
@@ -486,15 +436,15 @@ public class AIAssistantService {
             }
 
             // 判断是否命中曼哈顿 2024 年 2 月天气查询，注入接口/样例数据
-            WeatherAnswer weatherAnswer = weatherApiService.findWeatherAnswerForMessage(request.getMessage());
-            if (weatherAnswer != null) {
-                needsDataQuery = true;
-                queriedTables.add("weather_api_manhattan_2024_02");
-                if (weatherAnswer.getCharts() != null) {
-                    charts.addAll(weatherAnswer.getCharts());
-                }
-                enhancedMessage = enhancedMessage + "\n\n【天气数据支持】\n" + weatherAnswer.getSummary();
-            }
+            // WeatherAnswer weatherAnswer = weatherApiService.findWeatherAnswerForMessage(request.getMessage());
+            // if (weatherAnswer != null) {
+            //    needsDataQuery = true;
+            //    queriedTables.add("weather_api_manhattan_2024_02");
+            //    if (weatherAnswer.getCharts() != null) {
+            //        charts.addAll(weatherAnswer.getCharts());
+            //    }
+            //    enhancedMessage = enhancedMessage + "\n\n【天气数据支持】\n" + weatherAnswer.getSummary();
+            // }
 
             // 如果用户查询涉及数据，尝试基于查询结果生成可视化图表
             if (needsDataQuery && nl2sqlService != null && nl2sqlService.isNL2SQLServiceAvailable()) {
@@ -569,11 +519,12 @@ public class AIAssistantService {
 
             if (needsDataQuery && (!queriedTables.isEmpty() || !charts.isEmpty())) {
                 String summary = "已查询交通相关数据并整合到回答中";
-                if (weatherAnswer != null) {
-                    summary = !charts.isEmpty()
-                        ? "已接入天气数据并生成图表"
-                        : "已接入天气数据";
-                } else if (!charts.isEmpty()) {
+                // if (weatherAnswer != null) {
+                //    summary = !charts.isEmpty()
+                //        ? "已接入天气数据并生成图表"
+                //        : "已接入天气数据";
+                // } else if (!charts.isEmpty()) {
+                if (!charts.isEmpty()) {
                     summary = "已生成数据图表用于辅助说明";
                 }
                 response.setDataQuerySummary(summary);

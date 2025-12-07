@@ -6,6 +6,18 @@
     <title>T-Agent 智慧交通AI助手</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        :root {
+            --bg-color: #0f172a; /* Dark Navy */
+            --card-bg: #1e293b;
+            --primary-color: #3b82f6;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --user-msg-bg: #334155;
+            --border-color: #334155;
+            --input-bg: #1e293b;
+            --glow-color: #06b6d4;
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -13,82 +25,77 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            color: #333;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
+            font-family: 'Inter', 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
             height: 100vh;
             display: flex;
             flex-direction: column;
         }
 
+        .container {
+            max-width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
         .header {
-            text-align: center;
-            color: white;
-            margin-bottom: 20px;
-            padding: 20px 0;
+            padding: 16px 32px;
+            background: var(--bg-color);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
         }
 
         .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .header h1::before {
+            content: '';
+            display: block;
+            width: 32px;
+            height: 32px;
+            background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%2306b6d4" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="4.93" y1="4.93" x2="9.17" y2="9.17"/><line x1="14.83" y1="14.83" x2="19.07" y2="19.07"/><line x1="14.83" y1="9.17" x2="19.07" y2="4.93"/><line x1="14.83" y1="9.17" x2="18.36" y2="5.64"/><line x1="4.93" y1="19.07" x2="9.17" y2="14.83"/></svg>') no-repeat center/contain;
         }
 
-        .header p {
-            font-size: 1.1rem;
-            opacity: 0.9;
-        }
+        .header p { display: none; }
 
+        /* Chat Area */
         .chat-container {
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            overflow: hidden;
             flex: 1;
             display: flex;
             flex-direction: column;
-            min-height: 0;
+            background: var(--bg-color);
+            width: 100%;
+            max-width: 1000px;
+            margin: 0 auto;
         }
 
-        .chat-header {
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
-            padding: 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .chat-title {
-            font-size: 1.3rem;
-            font-weight: 600;
-        }
-
-        .session-info {
-            font-size: 0.9rem;
-            opacity: 0.9;
-        }
+        .chat-header { display: none; }
 
         .chat-messages {
             flex: 1;
+            padding: 40px;
             overflow-y: auto;
-            padding: 20px;
-            background: #f8f9fa;
-            min-height: 0;
+            scroll-behavior: smooth;
         }
 
+        /* Messages */
         .message {
-            margin-bottom: 20px;
+            margin-bottom: 32px;
             display: flex;
+            gap: 20px;
             align-items: flex-start;
-            gap: 12px;
         }
 
         .message.user {
@@ -96,440 +103,236 @@
         }
 
         .message-avatar {
-            width: 40px;
-            height: 40px;
+            width: 36px;
+            height: 36px;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 1.2rem;
-            font-weight: bold;
             flex-shrink: 0;
         }
 
         .message.user .message-avatar {
-            background: linear-gradient(135deg, #4CAF50, #45a049);
+            background: #475569;
             color: white;
         }
 
         .message.assistant .message-avatar {
-            background: linear-gradient(135deg, #2196F3, #1976D2);
-            color: white;
+            background: transparent;
+            border: 1px solid var(--border-color);
         }
 
         .message-content {
-            max-width: 70%;
-            padding: 15px 20px;
-            border-radius: 18px;
+            max-width: 80%;
+            padding: 16px 24px;
+            border-radius: 12px;
+            font-size: 1rem;
             line-height: 1.6;
-            word-wrap: break-word;
         }
 
         .message.user .message-content {
-            background: linear-gradient(135deg, #4CAF50, #45a049);
-            color: white;
-            border-bottom-right-radius: 5px;
+            background: var(--user-msg-bg);
+            color: var(--text-primary);
         }
 
         .message.assistant .message-content {
-            background: white;
-            color: #333;
-            border: 1px solid #e9ecef;
-            border-bottom-left-radius: 5px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-
-        .message-time {
-            font-size: 0.8rem;
-            color: #6c757d;
-            margin-top: 5px;
-        }
-
-        .message-meta {
-            font-size: 0.8rem;
-            color: #6c757d;
-            margin-top: 8px;
-            padding-top: 8px;
-            border-top: 1px solid #e9ecef;
-        }
-
-        .chart-wrapper {
-            margin-top: 12px;
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 12px;
-        }
-
-        .chart-card {
-            background: #f5f7ff;
-            border: 1px solid #e0e7ff;
-            border-radius: 12px;
-            padding: 10px;
-            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
-            min-width: 200px;
-        }
-
-        .chart-title {
-            font-size: 0.95rem;
-            font-weight: 600;
-            color: #374151;
-            margin-bottom: 8px;
-        }
-
-        .chart-card canvas {
-            width: 100%;
-            height: 120px;
-        }
-
-        .chart-actions {
-            display: flex;
-            justify-content: flex-end;
-            margin-top: 6px;
-        }
-
-        .chart-btn {
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: #fff;
-            border: none;
-            padding: 6px 10px;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            cursor: pointer;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.12);
-        }
-
-        .chart-btn:hover {
-            opacity: 0.9;
-        }
-
-        .chart-modal {
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.45);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-            padding: 16px;
-        }
-
-        .chart-modal-content {
-            background: #fff;
-            border-radius: 12px;
-            max-width: 900px;
-            width: 100%;
-            padding: 16px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.25);
-            overflow: auto;
-        }
-
-        .chart-modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-
-        .chart-modal-title {
-            font-weight: 700;
-            font-size: 1rem;
-            color: #111827;
-        }
-
-        .chart-modal-close {
-            border: none;
             background: transparent;
-            font-size: 1.2rem;
-            cursor: pointer;
+            padding: 0;
+            max-width: 100%;
         }
 
-        .chart-modal canvas {
-            width: 720px;
-            height: 320px;
-        }
-
-        .data-query-indicator {
-            display: inline-block;
-            background: #e3f2fd;
-            color: #1976d2;
-            padding: 2px 8px;
+        /* Deep Think Card Style */
+        .thought-process {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
             border-radius: 12px;
-            font-size: 0.7rem;
-            margin-left: 8px;
+            margin-bottom: 20px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
 
-        .chat-input-container {
-            background: white;
+        .thought-header {
+            padding: 12px 20px;
+            background: rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.9rem;
+            color: var(--glow-color);
+            font-weight: 600;
+        }
+        
+        .thought-header::before {
+            content: '🧠'; 
+        }
+
+        .thought-content {
             padding: 20px;
-            border-top: 1px solid #e9ecef;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+        
+        .thought-process.open .thought-content {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .thought-step {
+            margin-bottom: 8px;
+            display: flex;
+            gap: 10px;
+        }
+
+        /* Input Area */
+        .chat-input-container {
+            padding: 24px;
+            background: var(--bg-color);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 16px;
         }
 
         .chat-input-wrapper {
-            display: flex;
-            gap: 10px;
-            align-items: flex-end;
-        }
-
-        .deep-research-btn {
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 12px 20px;
             display: flex;
             align-items: center;
-            gap: 8px;
-            background: #2d3436;
-            border: 1px solid #4a4a4a;
-            border-radius: 20px;
-            padding: 8px 16px;
-            font-size: 0.9rem;
-            color: #b2bec3;
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            margin-bottom: 10px;
-            width: fit-content;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .deep-research-btn::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-            transition: 0.5s;
-        }
-
-        .deep-research-btn:hover::before {
-            left: 100%;
-        }
-
-        .deep-research-btn.active {
-            background: linear-gradient(135deg, #000000, #2d3436);
-            color: #00cec9;
-            border-color: #00cec9;
-            box-shadow: 0 0 15px rgba(0, 206, 201, 0.3);
-            font-weight: 600;
-        }
-
-        .deep-research-btn:hover {
-            background: #353b48;
-            color: white;
-        }
-
-        .deep-research-btn.active:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 0 20px rgba(0, 206, 201, 0.5);
-        }
-
-        .deep-research-icon {
-            font-size: 1.1rem;
+            flex: 1;
+            max-width: 800px;
         }
 
         .chat-input {
             flex: 1;
-            min-height: 50px;
-            max-height: 120px;
-            padding: 15px;
-            border: 2px solid #e9ecef;
-            border-radius: 25px;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
             font-size: 1rem;
-            font-family: inherit;
             resize: none;
             outline: none;
-            transition: border-color 0.3s ease;
-        }
-
-        .chat-input:focus {
-            border-color: #667eea;
+            max-height: 100px;
         }
 
         .send-button {
-            width: 50px;
-            height: 50px;
-            border: none;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #667eea, #764ba2);
-            color: white;
-            font-size: 1.2rem;
+            background: var(--user-msg-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .send-button:hover {
+            background: #475569;
+        }
+
+        /* Deep Think Button */
+        .deep-research-btn {
+            background: transparent;
+            border: 1px solid var(--glow-color);
+            color: var(--glow-color);
+            padding: 10px 24px;
+            border-radius: 8px;
+            font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
             display: flex;
             align-items: center;
-            justify-content: center;
-        }
-
-        .send-button:hover:not(:disabled) {
-            transform: scale(1.1);
-            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        .send-button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-
-        .send-button.stop {
-            background: linear-gradient(135deg, #764ba2, #5a3a7a);
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-
-        .send-button.stop:hover:not(:disabled) {
-            box-shadow: 0 4px 15px rgba(118, 75, 162, 0.6);
-        }
-
-        @keyframes pulse {
-            0%, 100% {
-                opacity: 1;
-            }
-            50% {
-                opacity: 0.7;
-            }
-        }
-
-        .message-actions {
-            display: flex;
             gap: 8px;
-            margin-top: 8px;
-            opacity: 0;
-            transition: opacity 0.2s ease;
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.1);
+        }
+        
+        .deep-research-btn::before {
+            content: '🧠';
+            font-size: 1.1rem;
         }
 
-        .message:hover .message-actions {
-            opacity: 1;
+        .deep-research-btn.active {
+            background: linear-gradient(90deg, #06b6d4, #3b82f6);
+            color: white;
+            border-color: transparent;
+            box-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        
+        .deep-research-btn:hover {
+            box-shadow: 0 0 15px rgba(6, 182, 212, 0.3);
         }
 
-        .message-action-btn {
-            background: #f3f4f6;
-            border: 1px solid #e5e7eb;
-            border-radius: 6px;
-            padding: 4px 10px;
-            font-size: 0.8rem;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            color: #6b7280;
+        /* Hide Quick Questions */
+        .quick-questions { display: none; }
+
+        /* Charts */
+        .chart-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
         }
-
-        .message-action-btn:hover {
-            background: #e5e7eb;
-            color: #374151;
-        }
-
-        .message-action-btn:active {
-            transform: scale(0.95);
-        }
-
-        .quick-questions {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 15px;
-            flex-wrap: wrap;
-        }
-
-        .quick-question {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 20px;
-            padding: 8px 15px;
-            font-size: 0.9rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .quick-question:hover {
-            background: #e9ecef;
-            border-color: #667eea;
-        }
-
-        .typing-indicator {
-            display: none;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-
-        .typing-dots {
-            display: flex;
-            gap: 4px;
-        }
-
-        .typing-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #6c757d;
-            animation: typing 1.4s infinite ease-in-out;
-        }
-
-        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
-        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
-
-        @keyframes typing {
-            0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
-            40% { transform: scale(1); opacity: 1; }
-        }
-
+        
+        .chart-title { color: var(--text-primary); }
+        
+        /* Welcome Message */
         .welcome-message {
             text-align: center;
-            padding: 40px 20px;
-            color: #6c757d;
+            color: var(--text-secondary);
+            margin-top: 100px;
         }
-
+        
         .welcome-message h3 {
-            color: #495057;
-            margin-bottom: 15px;
+            color: var(--text-primary);
+            font-size: 2rem;
+            margin-bottom: 16px;
         }
 
-        .error-message {
-            background: #f8d7da;
-            color: #721c24;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 10px 0;
-            border: 1px solid #f5c6cb;
+        /* Typing Indicator */
+        .typing-indicator {
+            display: none;
+            padding-left: 56px;
+            margin-bottom: 20px;
         }
-
-        .new-session-btn {
-            background: rgba(255,255,255,0.2);
-            color: white;
-            border: 1px solid rgba(255,255,255,0.3);
-            padding: 8px 16px;
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 0.9rem;
-            transition: all 0.3s ease;
+        
+        .typing-dot { background: var(--glow-color); }
+        
+        /* Modal */
+        .chart-modal { background: rgba(15, 23, 42, 0.9); }
+        .chart-modal-content {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
         }
-
-        .new-session-btn:hover {
-            background: rgba(255,255,255,0.3);
+        .chart-modal-title { color: var(--text-primary); }
+        .chart-modal-close { color: var(--text-secondary); }
+        
+        /* Meta Info */
+        .message-meta {
+            border-top-color: var(--border-color);
+            color: var(--text-secondary);
         }
-
-        @media (max-width: 768px) {
-            .container {
-                padding: 10px;
-            }
-
-            .header h1 {
-                font-size: 2rem;
-            }
-
-            .message-content {
-                max-width: 85%;
-            }
-
-            .quick-questions {
-                flex-direction: column;
-            }
-
-            .quick-question {
-                text-align: center;
-            }
+        
+        .data-query-indicator {
+            background: rgba(6, 182, 212, 0.1);
+            color: var(--glow-color);
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🤖 T-Agent 智慧交通AI助手</h1>
+            <h1>Smart Traffic Agent - Intelligent Hub</h1>
             <p>您的专属智能交通数据分析与风险预警助手</p>
         </div>
 
@@ -544,48 +347,39 @@
 
             <div class="chat-messages" id="chatMessages">
                 <div class="welcome-message">
-                    <h3>👋 欢迎使用T-Agent智慧交通助手！</h3>
+                    <h3>👋 欢迎使用 Smart Traffic Agent</h3>
                     <p>我可以帮您分析纽约曼哈顿区的交通数据，提供风险预警和专业建议。</p>
-                    <p>请随时向我提问关于交通事故、天气影响、地铁客流或许可事件的问题。</p>
                 </div>
             </div>
 
             <div class="typing-indicator" id="typingIndicator">
-                <div class="message-avatar" style="background: linear-gradient(135deg, #2196F3, #1976D2); color: white;">🤖</div>
+                <div class="message-avatar">🤖</div>
                 <div>
                     <div class="typing-dots">
                         <div class="typing-dot"></div>
                         <div class="typing-dot"></div>
                         <div class="typing-dot"></div>
                     </div>
-                    <div style="font-size: 0.8rem; color: #6c757d; margin-top: 5px;">T-Agent正在思考...</div>
                 </div>
             </div>
 
             <div class="chat-input-container">
-                <div class="quick-questions">
-                    <div class="quick-question" onclick="sendQuickQuestion('2024年2月有哪些交通事故？')">2024年2月有哪些交通事故？</div>
-                    <div class="quick-question" onclick="sendQuickQuestion('天气对交通有什么影响？')">天气对交通有什么影响？</div>
-                    <div class="quick-question" onclick="sendQuickQuestion('2024年2月地铁客流量如何？')">2024年2月地铁客流量如何？</div>
-                    <div class="quick-question" onclick="sendQuickQuestion('有什么交通风险需要注意？')">有什么交通风险需要注意？</div>
-                </div>
-
-                <button class="deep-research-btn" id="deepResearchBtn" onclick="toggleDeepResearch()">
-                    <span>深度思考 (Deep Research)</span>
-                </button>
-
                 <div class="chat-input-wrapper">
                     <textarea
                         id="chatInput"
                         class="chat-input"
-                        placeholder="请输入您的问题，比如：分析一下2024年2月的交通事故情况..."
+                        placeholder="What's the best route to avoid congestion..."
                         rows="1"
                         onkeydown="handleKeyDown(event)"
                         oninput="autoResize(this)"></textarea>
                     <button class="send-button" id="sendButton" onclick="sendMessage()" title="发送消息 (Enter)">
-                        ➤
+                        Send
                     </button>
                 </div>
+                
+                <button class="deep-research-btn" id="deepResearchBtn" onclick="toggleDeepResearch()">
+                    <span>DEEP THINK</span>
+                </button>
             </div>
         </div>
     </div>
@@ -692,6 +486,17 @@
             // 创建助手消息占位符
             const assistantMessageDiv = addMessage('assistant', '', new Date());
             const contentDiv = assistantMessageDiv.querySelector('.message-content');
+            
+            // 准备流式输出容器结构
+            contentDiv.innerHTML = '';
+            const thoughtContainer = document.createElement('div');
+            thoughtContainer.className = 'thought-container';
+            contentDiv.appendChild(thoughtContainer);
+            
+            const textContainer = document.createElement('div');
+            textContainer.className = 'text-content';
+            contentDiv.appendChild(textContainer);
+
             let fullContent = '';
 
             try {
@@ -717,6 +522,7 @@
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
+                let metadataObj = null;
 
                 while (true) {
                     const { done, value } = await reader.read();
@@ -735,58 +541,7 @@
                                 const parts = content.split('[METADATA]');
                                 fullContent += parts[0];
                                 try {
-                                    const metaJson = parts[1];
-                                    const meta = JSON.parse(metaJson);
-                                    
-                                    // 更新元数据信息
-                                    let metaInfo = `<div class="message-meta">`;
-                                    metaInfo += `⏱️ 处理时间: ${meta.processingTimeMs || 'N/A'}ms`; // 流式暂无准确总耗时
-                                    if (meta.involvesDataQuery) {
-                                        metaInfo += `<span class="data-query-indicator">📊 数据查询</span>`;
-                                    }
-                                    if (meta.queriedTables && meta.queriedTables.length > 0) {
-                                        metaInfo += `<br>📋 查询表: ${meta.queriedTables.join(', ')}`;
-                                    }
-                                    if (meta.dataQuerySummary) {
-                                        metaInfo += `<br>📈 ${meta.dataQuerySummary}`;
-                                    }
-                                    metaInfo += `</div>`;
-                                    
-                                    // 插入元数据到消息底部
-                                    const metaDiv = document.createElement('div');
-                                    metaDiv.innerHTML = metaInfo;
-                                    assistantMessageDiv.children[1].appendChild(metaDiv);
-                                    
-                                    // 渲染图表
-                                    if (meta.charts && meta.charts.length > 0) {
-                                        const chartsContainer = document.createElement('div');
-                                        chartsContainer.className = 'chart-wrapper';
-                                        
-                                        meta.charts.forEach((chart, index) => {
-                                            const card = document.createElement('div');
-                                            card.className = 'chart-card';
-                                            const title = document.createElement('div');
-                                            title.className = 'chart-title';
-                                            title.textContent = chart.title || `图表 ${index + 1}`;
-                                            const canvas = document.createElement('canvas');
-                                            card.appendChild(title);
-                                            card.appendChild(canvas);
-                                            
-                                            const actions = document.createElement('div');
-                                            actions.className = 'chart-actions';
-                                            const btn = document.createElement('button');
-                                            btn.className = 'chart-btn';
-                                            btn.textContent = '查看全图';
-                                            btn.onclick = () => openChartModal(chart);
-                                            actions.appendChild(btn);
-                                            card.appendChild(actions);
-                                            
-                                            chartsContainer.appendChild(card);
-                                            setTimeout(() => renderChart(canvas, chart, false), 0);
-                                        });
-                                        assistantMessageDiv.children[1].appendChild(chartsContainer);
-                                    }
-                                    
+                                    metadataObj = JSON.parse(parts[1]);
                                 } catch (e) {
                                     console.error('解析元数据失败', e);
                                 }
@@ -796,7 +551,14 @@
                         }
                     }
                     
-                    contentDiv.innerHTML = formatMessage(fullContent);
+                    textContainer.innerHTML = formatMessage(fullContent);
+                    
+                    // 如果收到元数据，渲染附加信息
+                    if (metadataObj) {
+                        renderMetadata(metadataObj, contentDiv);
+                        // 防止重复渲染
+                        metadataObj = null; 
+                    }
                     
                     // Auto scroll
                     const messagesContainer = document.getElementById('chatMessages');
@@ -807,10 +569,10 @@
                 if (error.name === 'AbortError') {
                     console.log('请求已被用户取消');
                     fullContent += '\n[已停止生成]';
-                    contentDiv.innerHTML = formatMessage(fullContent);
+                    textContainer.innerHTML = formatMessage(fullContent);
                 } else {
                     console.error('发送消息失败:', error);
-                    contentDiv.innerHTML = '抱歉，网络连接出现问题，请稍后重试。';
+                    textContainer.innerHTML = '抱歉，网络连接出现问题，请稍后重试。';
                 }
             } finally {
                 currentAbortController = null;
@@ -822,6 +584,100 @@
         function sendQuickQuestion(question) {
             document.getElementById('chatInput').value = question;
             sendMessage();
+        }
+
+        function renderMetadata(meta, contentDiv) {
+            // 1. 渲染思考过程
+            if (meta.thoughts && meta.thoughts.length > 0) {
+                const thoughtDiv = document.createElement('div');
+                thoughtDiv.className = 'thought-process';
+                // 默认展开
+                thoughtDiv.classList.add('open');
+                
+                const header = document.createElement('div');
+                header.className = 'thought-header';
+                header.innerHTML = `
+                    <span>Deep Think Analysis</span>
+                `;
+                // 移除点击折叠功能，保持常开或根据需求调整
+                // header.onclick = () => { thoughtDiv.classList.toggle('open'); };
+                
+                const content = document.createElement('div');
+                content.className = 'thought-content';
+                
+                meta.thoughts.forEach(step => {
+                    const stepDiv = document.createElement('div');
+                    stepDiv.className = 'thought-step';
+                    stepDiv.innerHTML = `
+                        <span>${step}</span>
+                    `;
+                    content.appendChild(stepDiv);
+                });
+                
+                thoughtDiv.appendChild(header);
+                thoughtDiv.appendChild(content);
+                
+                // 优先插入到 thought-container
+                const thoughtContainer = contentDiv.querySelector('.thought-container');
+                if (thoughtContainer) {
+                    thoughtContainer.innerHTML = '';
+                    thoughtContainer.appendChild(thoughtDiv);
+                } else {
+                    if (contentDiv.firstChild) {
+                        contentDiv.insertBefore(thoughtDiv, contentDiv.firstChild);
+                    } else {
+                        contentDiv.appendChild(thoughtDiv);
+                    }
+                }
+            }
+
+            // 2. 渲染元数据信息 (底部)
+            let metaInfo = `<div class="message-meta">`;
+            metaInfo += `⏱️ 处理时间: ${meta.processingTimeMs || 'N/A'}ms`; 
+            if (meta.involvesDataQuery) {
+                metaInfo += `<span class="data-query-indicator">📊 数据查询</span>`;
+            }
+            if (meta.queriedTables && meta.queriedTables.length > 0) {
+                metaInfo += `<br>📋 查询表: ${meta.queriedTables.join(', ')}`;
+            }
+            if (meta.dataQuerySummary) {
+                metaInfo += `<br>📈 ${meta.dataQuerySummary}`;
+            }
+            metaInfo += `</div>`;
+            
+            const metaDiv = document.createElement('div');
+            metaDiv.innerHTML = metaInfo;
+            contentDiv.appendChild(metaDiv);
+            
+            // 3. 渲染图表 (底部)
+            if (meta.charts && meta.charts.length > 0) {
+                const chartsContainer = document.createElement('div');
+                chartsContainer.className = 'chart-wrapper';
+                
+                meta.charts.forEach((chart, index) => {
+                    const card = document.createElement('div');
+                    card.className = 'chart-card';
+                    const title = document.createElement('div');
+                    title.className = 'chart-title';
+                    title.textContent = chart.title || `图表 ${index + 1}`;
+                    const canvas = document.createElement('canvas');
+                    card.appendChild(title);
+                    card.appendChild(canvas);
+                    
+                    const actions = document.createElement('div');
+                    actions.className = 'chart-actions';
+                    const btn = document.createElement('button');
+                    btn.className = 'chart-btn';
+                    btn.textContent = '查看全图';
+                    btn.onclick = () => openChartModal(chart);
+                    actions.appendChild(btn);
+                    card.appendChild(actions);
+                    
+                    chartsContainer.appendChild(card);
+                    setTimeout(() => renderChart(canvas, chart, false), 0);
+                });
+                contentDiv.appendChild(chartsContainer);
+            }
         }
 
         // 添加消息到聊天界面

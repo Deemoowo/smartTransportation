@@ -52,7 +52,12 @@ public class ChatResponse {
     private String error;
 
     /**
-     * 图表数据（用于前端展示）
+     * 思考过程
+     */
+    private List<String> thoughts;
+
+    /**
+     * 图表数据
      */
     private List<ChartData> charts;
 
@@ -154,6 +159,14 @@ public class ChatResponse {
 
     public void setCharts(List<ChartData> charts) {
         this.charts = charts;
+    }
+
+    public List<String> getThoughts() {
+        return thoughts;
+    }
+
+    public void setThoughts(List<String> thoughts) {
+        this.thoughts = thoughts;
     }
 
     public Boolean getSuccess() {
