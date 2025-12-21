@@ -32,8 +32,7 @@ public class RAGService {
     private EmbeddingService embeddingService;
     
     @Autowired(required = false)
-//    @Qualifier("openAiChatModel")
-    @Qualifier("dashscopeChatModel")
+    @Qualifier("openAiChatModel")
     private ChatModel chatModel;
 
     private ChatClient chatClient;
