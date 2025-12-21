@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -20,6 +21,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 
 /**
@@ -31,7 +34,11 @@ public class WeatherApiService {
     private static final Logger logger = LoggerFactory.getLogger(WeatherApiService.class);
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    // 缓存天气数据，避免重复调用API
+    private static final ConcurrentMap<String, WeatherAnswer> weatherCache = new ConcurrentHashMap<>();
+    private static final String CACHE_KEY = "manhattan_2024_02";
+
+    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${weather.api.enabled:true}")
@@ -56,6 +63,12 @@ public class WeatherApiService {
 
     public WeatherApiService(MetadataCacheService metadataCacheService) {
         this.metadataCacheService = metadataCacheService;
+
+        // 配置RestTemplate超时时间
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(3000); // 3秒连接超时
+        factory.setReadTimeout(5000);    // 5秒读取超时
+        this.restTemplate = new RestTemplate(factory);
     }
 
     /**
@@ -69,6 +82,22 @@ public class WeatherApiService {
      * 获取曼哈顿 2024 年 2 月天气数据（支持元数据缓存）
      */
     public WeatherAnswer fetchManhattanFeb2024Weather(String sessionId) {
+        // 首先检查缓存
+        WeatherAnswer cachedAnswer = weatherCache.get(CACHE_KEY);
+        if (cachedAnswer != null) {
+            if (sessionId != null) {
+                metadataCacheService.addThought(sessionId, "使用缓存的天气数据，避免重复API调用");
+                if (cachedAnswer.getCharts() != null && !cachedAnswer.getCharts().isEmpty()) {
+                    metadataCacheService.addCharts(sessionId, cachedAnswer.getCharts());
+                    metadataCacheService.setSummary(sessionId, "已接入天气数据并生成图表");
+                }
+                List<String> tables = new ArrayList<>();
+                tables.add("weather_api_manhattan_2024_02");
+                metadataCacheService.addQueriedTables(sessionId, tables);
+            }
+            return cachedAnswer;
+        }
+
         if (sessionId != null) {
             metadataCacheService.addThought(sessionId, "正在调用天气服务获取曼哈顿2024年2月气象数据...");
         }
@@ -87,6 +116,11 @@ public class WeatherApiService {
         }
 
         WeatherAnswer answer = buildAnswer(dailyWeather, fromApi);
+
+        // 缓存结果
+        if (answer != null) {
+            weatherCache.put(CACHE_KEY, answer);
+        }
         
         if (sessionId != null && answer != null) {
             if (answer.getCharts() != null && !answer.getCharts().isEmpty()) {
@@ -144,7 +178,7 @@ public class WeatherApiService {
             logger.info("天气接口解析成功，记录数={}", daily.size());
             return daily;
         } catch (Exception e) {
-            logger.warn("调用天气接口失败，将回退本地样例: {}", e.getMessage());
+            logger.warn("调用天气接口失败，将回退本地样例: {} ({})", e.getMessage(), e.getClass().getSimpleName());
             return null;
         }
     }

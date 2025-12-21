@@ -50,10 +50,11 @@ public class NL2SQLService {
                `OFF STREET NAME`, `NUMBER OF PERSONS INJURED`, `NUMBER OF PERSONS KILLED`, `NUMBER OF PEDESTRIANS INJURED`, 
                `NUMBER OF PEDESTRIANS KILLED`, `NUMBER OF CYCLIST INJURED`, `NUMBER OF CYCLIST KILLED`, 
                `NUMBER OF MOTORIST INJURED`, `NUMBER OF MOTORIST KILLED`, `CONTRIBUTING FACTOR VEHICLE 1`, 
-               `CONTRIBUTING FACTOR VEHICLE 2`, collision_id, `VEHICLE TYPE CODE 1`, `VEHICLE TYPE CODE 2`, `CRASH_DATETIME`, created_at
+               `CONTRIBUTING FACTOR VEHICLE 2`, collision_id, `VEHICLE TYPE CODE 1`, `VEHICLE TYPE CODE 2`, created_at
         备用字段：crash_date, crash_time, cross_street_name, number_of_cyclist_injured, number_of_cyclist_killed,
                number_of_motorist_injured, number_of_motorist_killed, number_of_pedestrians_injured, 
                number_of_pedestrians_killed, number_of_persons_injured, number_of_persons_killed, off_street_name, on_street_name, unique_key
+        注意：不存在 `CRASH DATETIME` 或 `CRASH_DATETIME` 字段，排序时请使用 `CRASH DATE`, `CRASH TIME` 组合
         
         4. nyc_permitted_events - 纽约许可活动数据 (注意：数据为2024年2月，包含重复字段名)
         主要字段：`Event ID`, `Event Name`, `Start Date/Time`, `End Date/Time`, `Event Borough`, `Event Location`, `Event Street Side`, 
@@ -160,6 +161,10 @@ public class NL2SQLService {
             6. 不要添加LIMIT子句，返回所有符合条件的数据
             7. 注意：数据库中存储的是2024年2月的历史数据，不要查询最近的数据
             8. 如果查询结果可能很多，请按时间正序排序
+            9. 【严格禁止】nyc_traffic_accidents表中不存在任何名为 `CRASH_DATETIME`、`CRASH DATETIME`、`crash_datetime` 的字段
+            10. 【严格禁止】在任何SQL语句中使用 CRASH_DATETIME 或 CRASH DATETIME 字段名
+            11. 【必须遵守】如需按时间排序交通事故数据，必须使用：ORDER BY `CRASH DATE`, `CRASH TIME`
+            12. 【必须遵守】交通事故表只有 `CRASH DATE` 和 `CRASH TIME` 两个独立的时间字段，没有合并的日期时间字段
             
             SQL查询：
             """, SCHEMA_INFO, query);
@@ -207,7 +212,7 @@ public class NL2SQLService {
             if (lowerQuery.contains("严重") || lowerQuery.contains("严重事故")) {
                 return "SELECT * FROM nyc_traffic_accidents WHERE (`NUMBER OF PERSONS KILLED` > 0 OR `NUMBER OF PERSONS INJURED` >= 3) AND `CRASH DATE` >= '2024-02-01' AND `CRASH DATE` <= '2024-02-29' ORDER BY `NUMBER OF PERSONS KILLED` DESC, `NUMBER OF PERSONS INJURED` DESC";
             }
-            return "SELECT * FROM nyc_traffic_accidents WHERE `CRASH DATE` >= '2024-02-01' AND `CRASH DATE` <= '2024-02-29'";
+            return "SELECT * FROM nyc_traffic_accidents WHERE `CRASH DATE` >= '2024-02-01' AND `CRASH DATE` <= '2024-02-29' ORDER BY `CRASH DATE`, `CRASH TIME`";
         }
 
         // 地铁相关查询
