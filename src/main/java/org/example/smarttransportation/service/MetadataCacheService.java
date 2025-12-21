@@ -64,7 +64,9 @@ public class MetadataCacheService {
                 v.setInvolvesDataQuery(false);
             }
             if (thought != null) {
-                if (v.getThoughts() == null) v.setThoughts(new ArrayList<>());
+                if (v.getThoughts() == null) {
+                    v.setThoughts(new ArrayList<>());
+                }
                 v.getThoughts().add(thought);
             }
             return v;

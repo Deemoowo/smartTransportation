@@ -441,17 +441,6 @@ public class AIAssistantService {
                 }
             }
 
-            // 判断是否命中曼哈顿 2024 年 2 月天气查询，注入接口/样例数据
-            // WeatherAnswer weatherAnswer = weatherApiService.findWeatherAnswerForMessage(request.getMessage());
-            // if (weatherAnswer != null) {
-            //    needsDataQuery = true;
-            //    queriedTables.add("weather_api_manhattan_2024_02");
-            //    if (weatherAnswer.getCharts() != null) {
-            //        charts.addAll(weatherAnswer.getCharts());
-            //    }
-            //    enhancedMessage = enhancedMessage + "\n\n【天气数据支持】\n" + weatherAnswer.getSummary();
-            // }
-
             // 如果用户查询涉及数据，尝试基于查询结果生成可视化图表
             if (needsDataQuery && nl2sqlService != null && nl2sqlService.isNL2SQLServiceAvailable()) {
                 try {

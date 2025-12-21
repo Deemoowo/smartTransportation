@@ -461,39 +461,4 @@ public class RiskWarningService {
         return targetDateTime.format(formatter) + " - " + endTime.format(DateTimeFormatter.ofPattern("HH:mm"));
     }
 
-    /**
-     * 扫描风险并生成结构化通报对象
-     * 实现场景一：事前·主动风险预警 (Proactive Risk Warning)
-     *
-     * @param targetDateTime 目标时间
-     * @return 风险预警报告
-     */
-    public RiskWarningReport scanForRisk(LocalDateTime targetDateTime) {
-        // 生成风险预警报告
-        RiskWarningReport report = generateRiskWarning(targetDateTime);
-
-        // 可以在这里添加额外的处理逻辑，例如：
-        // 1. 将报告保存到数据库
-        // 2. 发送通知给相关人员
-        // 3. 触发其他服务
-
-        return report;
-    }
-
-    /**
-     * 检查是否存在需要预警的风险条件
-     *
-     * @param targetDateTime 目标时间
-     * @return 是否存在风险
-     */
-    public boolean hasRiskConditions(LocalDateTime targetDateTime) {
-        // 分析各类风险
-        RiskWarningReport.RiskAnalysis riskAnalysis = analyzeRisks(targetDateTime);
-
-        // 确定整体风险等级
-        String riskLevel = determineRiskLevel(riskAnalysis);
-
-        // 如果风险等级为二级及以上，则认为存在风险
-        return "一级风险".equals(riskLevel) || "二级风险".equals(riskLevel);
-    }
 }

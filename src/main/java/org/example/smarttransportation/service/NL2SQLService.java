@@ -417,22 +417,6 @@ public class NL2SQLService {
     }
 
     /**
-     * 获取查询建议
-     */
-    public List<String> getQuerySuggestions() {
-        return Arrays.asList(
-            "最繁忙的共享单车站点有哪些？",
-            "交通事故主要发生在哪些区域？",
-            "最常见的投诉类型是什么？",
-            "地铁客流量最高的站点？",
-            "本月有哪些道路封闭活动？",
-            "共享单车的平均使用时长？",
-            "各区域的事故伤亡情况？",
-            "投诉处理的平均时间？"
-        );
-    }
-
-    /**
      * 检查NL2SQL服务是否可用
      */
     public boolean isNL2SQLServiceAvailable() {
