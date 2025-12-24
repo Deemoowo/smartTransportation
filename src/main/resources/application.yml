@@ -6,17 +6,15 @@ spring:
     name: smartTransportation
   main:
     allow-bean-definition-overriding: true
-  # 禁用DashScope自动配置
-  autoconfigure:
-    exclude:
-      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeAutoConfiguration
   ai:
-    # DashScope 配置已切换到 ideaLAB OpenAI 兼容接口
-    # dashscope:
-    #   api-key: sk-550ab25272734c96b9570a862903b482
-    #   chat:
-    #     options:
-    #       model: qwen-plus
+    # DashScope 配置（Qwen-plus 模型）
+    dashscope:
+      api-key: sk-550ab25272734c96b9570a862903b482
+      chat:
+        options:
+          model: qwen-plus
+          temperature: 0.7
+    # OpenAI 兼容接口配置（Qwen3-coder-plus 模型）
     openai:
         api-key: 96662af9a5fa753462e291e3a219cd89
         base-url: https://idealab.alibaba-inc.com/api/openai

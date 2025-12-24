@@ -432,6 +432,45 @@
         .message-content a:hover {
             text-decoration: underline;
         }
+
+        /* 模型选择器样式 */
+        .model-selector-container {
+            padding: 16px 32px;
+            background: var(--bg-color);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+        }
+
+        .model-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .model-selector {
+            padding: 8px 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--input-bg);
+            color: var(--text-primary);
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            outline: none;
+            min-width: 220px;
+        }
+
+        .model-selector:hover {
+            border-color: var(--glow-color);
+        }
+
+        .model-selector:focus {
+            border-color: var(--glow-color);
+            box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.2);
+        }
     </style>
 </head>
 <body>
@@ -439,6 +478,15 @@
         <div class="header">
             <h1>Smart Traffic Agent - Intelligent Hub</h1>
             <p>您的专属智能交通数据分析与风险预警助手</p>
+        </div>
+
+        <!-- 模型选择器 -->
+        <div class="model-selector-container">
+            <label for="modelSelector" class="model-label">🤖 AI Model:</label>
+            <select id="modelSelector" class="model-selector">
+                <option value="qwen3-coder-plus" selected>Qwen3-Coder-Plus (代码优化专用)</option>
+                <option value="qwen-plus">Qwen-Plus (通用增强版)</option>
+            </select>
         </div>
 
         <div class="chat-container">
@@ -630,6 +678,10 @@
                     }
                 }, 120000); // 2分钟超时，适合长时间的AI处理
 
+                // 获取选中的模型
+                const modelSelector = document.getElementById('modelSelector');
+                const selectedModel = modelSelector ? modelSelector.value : 'qwen3-coder-plus';
+
                 const response = await fetch('/api/chat/stream', {
                     method: 'POST',
                     headers: {
@@ -640,7 +692,8 @@
                         message: message,
                         enableSearch: isDeepResearchEnabled,
                         includeContext: true,
-                        maxContextRounds: 3
+                        maxContextRounds: 3,
+                        modelType: selectedModel
                     }),
                     signal: currentAbortController.signal
                 });

@@ -33,6 +33,11 @@ public class ChatRequest {
      */
     private Boolean enableSearch = false;
 
+    /**
+     * 模型类型：qwen3-coder-plus 或 qwen-plus
+     */
+    private String modelType = "qwen3-coder-plus";
+
     public ChatRequest() {}
 
     public ChatRequest(String sessionId, String message) {
@@ -79,5 +84,13 @@ public class ChatRequest {
 
     public void setEnableSearch(Boolean enableSearch) {
         this.enableSearch = enableSearch;
+    }
+
+    public String getModelType() {
+        return modelType;
+    }
+
+    public void setModelType(String modelType) {
+        this.modelType = modelType;
     }
 }

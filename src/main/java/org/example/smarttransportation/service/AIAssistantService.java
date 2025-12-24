@@ -1,6 +1,6 @@
 package org.example.smarttransportation.service;
 
-// import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions; // 原 DashScope 导入，已切换到 OpenAI
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.smarttransportation.dto.ChartData;
@@ -38,7 +38,8 @@ public class AIAssistantService {
 
     private static final Logger logger = LoggerFactory.getLogger(AIAssistantService.class);
 
-    private final ChatClient chatClient;
+    private final ChatModel openAiChatModel;
+    private final ChatModel dashScopeChatModel;
 
     @Autowired
     private ChatHistoryRepository chatHistoryRepository;
@@ -67,19 +68,20 @@ public class AIAssistantService {
     @Autowired
     private MetadataCacheService metadataCacheService;
 
-    public AIAssistantService(@Qualifier("openAiChatModel") ChatModel chatModel) {
-        // 构建ChatClient，设置专门的交通助手参数
-        this.chatClient = ChatClient.builder(chatModel)
-                .defaultOptions(
-                        // DashScopeChatOptions.builder() // 原 DashScope 配置，已切换到 OpenAI
-                        //         .withTopP(0.8)
-                        //         .withTemperature(0.7)
-                        //         .build()
-                        OpenAiChatOptions.builder()
-                                .withTopP(0.8)
-                                .withTemperature(0.7)
-                                .build()
-                )
+    public AIAssistantService(
+            @Qualifier("openAiChatModel") ChatModel openAiChatModel,
+            @Qualifier("dashScopeChatModel") ChatModel dashScopeChatModel) {
+        this.openAiChatModel = openAiChatModel;
+        this.dashScopeChatModel = dashScopeChatModel;
+    }
+
+    /**
+     * 根据模型类型创建 ChatClient
+     */
+    private ChatClient createChatClient(String modelType) {
+        ChatModel selectedModel = "qwen-plus".equals(modelType) ? dashScopeChatModel : openAiChatModel;
+
+        ChatClient.Builder builder = ChatClient.builder(selectedModel)
                 .defaultFunctions("trafficQuery", "weatherQuery", "webSearch")
                 .defaultSystem("""
                     你是T-Agent，一个专业的智慧交通AI助手。
@@ -99,8 +101,26 @@ public class AIAssistantService {
                     2. **思考过程**：在回答前，先思考需要哪些数据，然后调用相应工具。
                     
                     请用专业、数据驱动的方式回答。
-                    """)
-                .build();
+                    """);
+
+        // 根据模型类型设置不同的选项
+        if ("qwen-plus".equals(modelType)) {
+            builder.defaultOptions(
+                    DashScopeChatOptions.builder()
+                            .withTopP(0.8)
+                            .withTemperature(0.7)
+                            .build()
+            );
+        } else {
+            builder.defaultOptions(
+                    OpenAiChatOptions.builder()
+                            .withTopP(0.8)
+                            .withTemperature(0.7)
+                            .build()
+            );
+        }
+
+        return builder.build();
     }
 
     /**
@@ -169,6 +189,13 @@ public class AIAssistantService {
     }
 
     private Flux<String> streamGeneralScenario(ChatRequest request, String sessionId, long startTime) {
+        // 获取模型类型，默认使用 qwen3-coder-plus
+        String modelType = request.getModelType() != null ? request.getModelType() : "qwen3-coder-plus";
+        logger.info("流式对话使用模型: {}", modelType);
+
+        // 根据选择的模型创建 ChatClient
+        ChatClient chatClient = createChatClient(modelType);
+
         // 1. 准备上下文
         String userMessage = request.getMessage();
         StringBuilder contextBuilder = new StringBuilder();
@@ -473,6 +500,13 @@ public class AIAssistantService {
      */
     private ChatResponse handleGeneralScenario(ChatRequest request, String sessionId, long startTime) {
         try {
+            // 获取模型类型，默认使用 qwen3-coder-plus
+            String modelType = request.getModelType() != null ? request.getModelType() : "qwen3-coder-plus";
+            logger.info("使用模型: {}", modelType);
+
+            // 根据选择的模型创建 ChatClient
+            ChatClient chatClient = createChatClient(modelType);
+
             // 检查是否需要数据查询
             boolean needsDataQuery = isDataQueryRequired(request.getMessage());
             String enhancedMessage = request.getMessage();
